@@ -1,0 +1,143 @@
+# Doppelt So Clever — score sheet constants (player / front side).
+# Source: official Schmidt Spiele pad + rulebook.
+# version bump when layout or values change.
+
+version: 1
+name: doppelt_v1
+
+rounds_by_player_count:
+  1: 6
+  2: 6
+  3: 5
+  4: 4
+
+# Start-of-round grants (index 0 = round 1). Rounds 5–6 show player-count icons only;
+# solo receives no bonus on those rounds.
+round_start_grants:
+  - kind: action_track_unlock
+    track: reroll
+  - kind: action_track_unlock
+    track: extra_die
+  - kind: action_track_unlock
+    track: return_die
+  - kind: bonus_wild
+    color: null # player chooses color (round 4 black ?)
+  - null
+  - null
+
+# Round-track icons on slots 5–6 (visual only; no grant in solo).
+round_track_decorations:
+  5: player_count_3
+  6: player_count_2_or_1
+
+action_tracks:
+  reroll:
+    slots: 7
+    end_bonus:
+      kind: fox
+  return_die:
+    slots: 6
+    end_bonus:
+      kind: bonus_wild
+      color: pink
+  extra_die:
+    slots: 6
+    end_bonus:
+      kind: bonus_wild
+      color: silver
+
+silver:
+  rows: [yellow, blue, green, pink]
+  columns: [1, 2, 3, 4, 5, 6]
+  # Points for N marks in a single row (index N-1).
+  row_score_by_mark_count: [2, 4, 7, 11, 16, 22]
+  column_bonuses:
+    - kind: extra_die
+    - kind: bonus_wild
+      color: yellow
+    - kind: fox
+    - kind: bonus_wild
+      color: blue
+    - kind: bonus_wild
+      color: green
+    - kind: bonus_wild
+      color: pink
+
+yellow:
+  # Staggered grid; 10 markable cells. row/col are layout coordinates on the pad.
+  cells:
+    - { id: 0, value: 3, row: 0, col: 1 }
+    - { id: 1, value: 6, row: 0, col: 3 }
+    - { id: 2, value: 1, row: 1, col: 0 }
+    - { id: 3, value: 2, row: 1, col: 2 }
+    - { id: 4, value: 4, row: 2, col: 1 }
+    - { id: 5, value: 3, row: 2, col: 3 }
+    - { id: 6, value: 2, row: 3, col: 0 }
+    - { id: 7, value: 5, row: 3, col: 2 }
+    - { id: 8, value: 5, row: 4, col: 1 }
+    - { id: 9, value: 4, row: 4, col: 3 }
+  # Total cross count → end-game points.
+  score_by_cross_count: [3, 10, 21, 36, 55, 75, 96, 118, 141, 165]
+  row_completion_bonuses:
+    - { kind: bonus_wild, color: blue }
+    - { kind: return_die }
+    - { kind: bonus_wild, color: yellow }
+    - { kind: bonus_wild, color: green }
+    - { kind: bonus_wild, color: pink }
+  # Column-completion bonuses (pad columns 0–3); pad-specific wiring in Phase 1.
+  column_completion_bonuses:
+    - null
+    - null
+    - null
+    - null
+  bottom_edge_bonuses:
+    - { kind: reroll }
+    - { kind: extra_die }
+    - { kind: bonus_wild, color: silver }
+    - { kind: fox }
+
+blue:
+  slot_count: 12
+  # Cumulative score when slot i (0-based) is the last filled slot.
+  score_by_last_slot: [1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 66, 78]
+  field_bonuses:
+    - { slot: 0, bonus: { kind: blue_white_sum_hint } } # pad shows blue+white dice icon
+    - { slot: 1, bonus: { kind: return_die } }
+    - { slot: 2, bonus: { kind: bonus_wild, color: yellow } }
+    - { slot: 3, bonus: { kind: extra_die } }
+    - { slot: 4, bonus: { kind: reroll } }
+    - { slot: 5, bonus: { kind: bonus_wild, color: pink } }
+    - { slot: 6, bonus: { kind: fox } }
+    - { slot: 7, bonus: { kind: return_die } }
+    - { slot: 8, bonus: { kind: bonus_wild, color: green } }
+
+green:
+  slot_count: 12
+  multipliers: [1, 2, 2, 2, 1, 3, 3, 3, 2, 3, 1, 4]
+  # Six pairwise star slots (pair index 0 = slots 0–1, etc.).
+  pair_count: 6
+  field_bonuses:
+    - { slot: 0, bonus: { kind: reroll } }
+    - { slot: 1, bonus: { kind: bonus_wild, color: blue } }
+    - { slot: 2, bonus: { kind: return_die } }
+    - { slot: 3, bonus: { kind: fox } }
+    - { slot: 4, bonus: { kind: bonus_wild, color: silver } }
+    - { slot: 5, bonus: { kind: extra_die } }
+    - { slot: 6, bonus: { kind: bonus_wild, color: pink } }
+    - { slot: 7, bonus: { kind: bonus_wild, color: yellow } }
+
+pink:
+  slot_count: 12
+  # Minimum die value to earn field bonus; null = no threshold.
+  min_values: [null, null, 2, 3, 4, 5, 6, 2, 3, 4, 5, 6]
+  field_bonuses:
+    - { slot: 0, bonus: { kind: reroll } }
+    - { slot: 1, bonus: { kind: return_die } }
+    - { slot: 2, bonus: { kind: extra_die } }
+    - { slot: 3, bonus: { kind: bonus_wild, color: green } }
+    - { slot: 4, bonus: { kind: bonus_wild, color: yellow } }
+    - { slot: 5, bonus: { kind: fox } }
+    - { slot: 6, bonus: { kind: bonus_wild, color: silver } }
+    - { slot: 7, bonus: { kind: reroll } }
+    - { slot: 8, bonus: { kind: bonus_wild, color: blue } }
+    - { slot: 9, bonus: { kind: bonus_wild, color: yellow } }

@@ -1,0 +1,33 @@
+# Virtual environment
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Testing / tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Data & logs (large generated files)
+data/logs/
+data/datasets/
+*.bin
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Thumbs
+Thumbs.db
