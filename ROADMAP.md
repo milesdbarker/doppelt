@@ -528,8 +528,8 @@ Use this as a living progress tracker.
 ### Phase 1
 
 - [x] Turn loop (solo) — active pick + passive pick, 6 rounds
-- [x] Yellow / pink / blue marking (green/silver stubbed)
-- [ ] Bonuses + actions + chains (partial: automated blue/green/pink wild bonuses)
+- [x] Yellow / pink / blue / **green** / **silver** marking
+- [x] Bonuses + chains (FIFO queue, auto blue/green/pink wild; yellow/silver wild via actions)
 - [ ] Scoring + foxes
 - [ ] Action log replay
 - [ ] CLI play/replay

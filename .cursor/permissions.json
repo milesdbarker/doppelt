@@ -1,0 +1,6 @@
+{
+  "terminalAllowlist": [
+    "cd c:\\Users\\miles\\CursorProjects\\doppelt; .venv\\Scripts\\python -m pytest",
+    "cd c:\\Users\\miles\\CursorProjects\\doppelt; .venv\\Scripts\\python -m ruff"
+  ]
+}

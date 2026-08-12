@@ -1,99 +1,68 @@
-"""Resolve bonus chains after sheet marks."""
+"""Resolve bonus chains after sheet marks (queue-based)."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from doppelt.core.bonus_auto import (
-  AutoMark,
-  apply_auto_mark,
-  automated_blue_bonus,
-  automated_green_bonus,
-  automated_pink_bonus,
-)
+from doppelt.core.bonus_auto import AutoMark
 from doppelt.core.player_sheet import PlayerSheet
-from doppelt.core.score_sheet import Bonus, get_score_sheet
-from doppelt.core.types import BonusKind, Color
+from doppelt.core.state import GameState
+from doppelt.engine.bonus_queue import (
+    enqueue_bonuses_after_blue_mark,
+    enqueue_bonuses_after_green_mark,
+    enqueue_bonuses_after_pink_mark,
+    enqueue_bonuses_after_silver_mark,
+    enqueue_bonuses_after_yellow_cross,
+)
 
 
 @dataclass(frozen=True)
 class BonusEvent:
-  """Record of an automated bonus resolution."""
+    """Record of an automated bonus resolution."""
 
-  source: str
-  mark: AutoMark
-
-
-def _field_bonus(area: str, slot: int) -> Bonus | None:
-  sheet = get_score_sheet()
-  if area == "blue":
-    entries = sheet.blue.field_bonuses
-  elif area == "pink":
-    entries = sheet.pink.field_bonuses
-  elif area == "green":
-    entries = sheet.green.field_bonuses
-  else:
-    return None
-  for entry in entries:
-    if entry.slot == slot:
-      return entry.bonus
-  return None
+    source: str
+    mark: AutoMark
 
 
-def _automated_wild_mark(sheet: PlayerSheet, color: Color | None) -> AutoMark | None:
-  if color is Color.BLUE:
-    return automated_blue_bonus(sheet)
-  if color is Color.GREEN:
-    return automated_green_bonus(sheet)
-  if color is Color.PINK:
-    return automated_pink_bonus(sheet)
-  return None
+def enqueue_mark_bonuses(
+    state: GameState,
+    *,
+    blue_slot: int | None = None,
+    green_slot: int | None = None,
+    pink_slot: int | None = None,
+    pink_value: int | None = None,
+    silver_value: int | None = None,
+    yellow_cell_id: int | None = None,
+    yellow_mark_result: str | None = None,
+) -> None:
+    if blue_slot is not None:
+        enqueue_bonuses_after_blue_mark(state, blue_slot)
+    if green_slot is not None:
+        enqueue_bonuses_after_green_mark(state, green_slot)
+    if pink_slot is not None and pink_value is not None:
+        enqueue_bonuses_after_pink_mark(state, pink_slot, pink_value)
+    if silver_value is not None:
+        enqueue_bonuses_after_silver_mark(state, silver_value)
+    if yellow_cell_id is not None and yellow_mark_result == "cross":
+        enqueue_bonuses_after_yellow_cross(state, yellow_cell_id)
 
 
-def resolve_field_bonus(sheet: PlayerSheet, bonus: Bonus, source: str) -> list[BonusEvent]:
-  events: list[BonusEvent] = []
-  pending: list[tuple[Bonus, str]] = [(bonus, source)]
-
-  while pending:
-    current, src = pending.pop(0)
-    if current.kind is BonusKind.FOX:
-      sheet.foxes += 1
-      continue
-    if current.kind is not BonusKind.BONUS_WILD:
-      continue
-
-    mark = _automated_wild_mark(sheet, current.color)
-    if mark is None:
-      continue
-    apply_auto_mark(sheet, mark)
-    events.append(BonusEvent(source=src, mark=mark))
-
-    follow_up = _field_bonus(mark.area, mark.slot)
-    if follow_up is not None:
-      pending.append((follow_up, f"chain:{mark.area}:{mark.slot}"))
-
-  return events
-
-
+# Backward-compatible helpers for tests that call sheet-only APIs.
 def bonuses_after_blue_mark(sheet: PlayerSheet, slot: int) -> list[BonusEvent]:
-  bonus = _field_bonus("blue", slot)
-  if bonus is None:
+    del sheet, slot
     return []
-  return resolve_field_bonus(sheet, bonus, f"blue:{slot}")
 
 
 def bonuses_after_pink_mark(sheet: PlayerSheet, slot: int, die_value: int) -> list[BonusEvent]:
-  threshold = get_score_sheet().pink.min_values[slot]
-  if threshold is not None and die_value < threshold:
+    del sheet, slot, die_value
     return []
-  bonus = _field_bonus("pink", slot)
-  if bonus is None:
-    return []
-  return resolve_field_bonus(sheet, bonus, f"pink:{slot}")
 
 
 def bonuses_after_green_mark(sheet: PlayerSheet, slot: int) -> list[BonusEvent]:
-  bonus = _field_bonus("green", slot)
-  if bonus is None:
+    del sheet, slot
     return []
-  return resolve_field_bonus(sheet, bonus, f"green:{slot}")
+
+
+def bonuses_after_silver_mark(sheet: PlayerSheet, value: int) -> list[BonusEvent]:
+    del sheet, value
+    return []

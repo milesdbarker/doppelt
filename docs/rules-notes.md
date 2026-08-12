@@ -145,8 +145,13 @@ When a mark triggers a bonus (`?` under a field, or completing a row/column):
 4. Yellow bonus marks require the target cell to **already be circled** before it can
    be crossed.
 
-**Engine:** maintain a `pending_bonus` queue; each step must produce a legal
-follow-up mark.
+**Engine:** maintain a `pending_bonuses` FIFO queue on `GameState`; enter
+`RESOLVE_BONUS` phase while the queue is non-empty. Auto-resolvable bonuses (fox,
+action grants, blue/green/pink wild) drain from the head without player actions;
+yellow and silver wilds expose catalog mark actions. Follow-up bonuses enqueue at
+the **back** of the queue.
+
+Helpers: `bonus_queue.py`, `bonus_flow.py`.
 
 ### Automated bonus marks (engine policy)
 

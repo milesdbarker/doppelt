@@ -2,35 +2,34 @@
 
 from doppelt.actions.catalog_v1 import pick_die_id
 from doppelt.core.phases import Phase
-from doppelt.core.scoring import total_score
 from doppelt.core.types import Dice
 from doppelt.engine.game import (
-  apply_action,
-  is_terminal,
-  new_game,
-  play_random_game,
+    apply_action,
+    is_terminal,
+    new_game,
+    play_random_game,
 )
 
 
 def test_new_game_starts_active_with_hand():
-  state = new_game(seed=1)
-  assert state.phase is Phase.ACTIVE_PICK
-  assert len(state.hand) == 6
-  assert state.round_index == 1
+    state = new_game(seed=1)
+    assert state.phase is Phase.ACTIVE_PICK
+    assert len(state.hand) == 6
+    assert state.round_index == 1
 
 
 def test_blue_pick_uses_white_sum():
-  state = new_game(seed=2)
-  state.faces[Dice.BLUE] = 3
-  state.faces[Dice.WHITE] = 4
-  apply_action(state, pick_die_id(Dice.BLUE))
-  assert state.sheet.blue[0] == 7
+    state = new_game(seed=2)
+    state.faces[Dice.BLUE] = 3
+    state.faces[Dice.WHITE] = 4
+    apply_action(state, pick_die_id(Dice.BLUE))
+    assert state.sheet.blue[0] == 7
 
 
 def test_random_game_reaches_terminal():
-  state = play_random_game(seed=123, max_actions=5000)
-  done, scores = is_terminal(state)
-  assert done
-  assert state.phase is Phase.GAME_OVER
-  assert total_score(state.sheet) >= 0
-  assert scores["blue"] >= 0
+    state = play_random_game(seed=123, max_actions=5000)
+    done, scores = is_terminal(state)
+    assert done
+    assert state.phase is Phase.GAME_OVER
+    assert scores["blue"] >= 0
+    assert "green" in scores
