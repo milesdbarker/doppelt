@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from doppelt.core.types import ActionTrack, BonusKind, SheetColor
+from doppelt.core.types import ActionTrack, BonusKind, Color
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_SCORE_SHEET_PATH = PACKAGE_ROOT / "data" / "score_sheet" / "score_sheet_v1.yaml"
@@ -18,7 +18,7 @@ DEFAULT_SCORE_SHEET_PATH = PACKAGE_ROOT / "data" / "score_sheet" / "score_sheet_
 @dataclass(frozen=True)
 class Bonus:
   kind: BonusKind
-  color: SheetColor | None = None
+  color: Color | None = None
 
   @classmethod
   def from_dict(cls, data: dict[str, Any] | None) -> Bonus | None:
@@ -27,7 +27,7 @@ class Bonus:
     color = data.get("color")
     return cls(
       kind=BonusKind(data["kind"]),
-      color=SheetColor(color) if color else None,
+      color=Color(color) if color else None,
     )
 
 
@@ -53,7 +53,7 @@ class ActionTrackDef:
 
 @dataclass(frozen=True)
 class SilverArea:
-  rows: tuple[SheetColor, ...]
+  rows: tuple[Color, ...]
   columns: tuple[int, ...]
   row_score_by_mark_count: tuple[int, ...]
   column_bonuses: tuple[Bonus | None, ...]
@@ -96,7 +96,7 @@ class RoundStartGrant:
 
   kind: BonusKind | None
   track: ActionTrack | None = None
-  color: SheetColor | None = None
+  color: Color | None = None
 
   @classmethod
   def from_raw(cls, data: dict[str, Any] | None) -> RoundStartGrant | None:
@@ -107,7 +107,7 @@ class RoundStartGrant:
     return cls(
       kind=BonusKind(data["kind"]),
       track=ActionTrack(track) if track else None,
-      color=SheetColor(color) if color else None,
+      color=Color(color) if color else None,
     )
 
 
@@ -160,7 +160,7 @@ def load_score_sheet(path: Path | None = None) -> ScoreSheet:
 
   silver_raw = raw["silver"]
   silver = SilverArea(
-    rows=tuple(SheetColor(c) for c in silver_raw["rows"]),
+    rows=tuple(Color(c) for c in silver_raw["rows"]),
     columns=tuple(silver_raw["columns"]),
     row_score_by_mark_count=tuple(silver_raw["row_score_by_mark_count"]),
     column_bonuses=_tuple_bonuses(silver_raw["column_bonuses"]),

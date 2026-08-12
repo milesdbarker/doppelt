@@ -1,7 +1,7 @@
 """Tests for score_sheet_v1.yaml constants."""
 
 from doppelt.core.score_sheet import get_score_sheet
-from doppelt.core.types import ActionTrack, BonusKind, SheetColor
+from doppelt.core.types import ActionTrack, BonusKind, Color
 
 
 def test_loads_default_score_sheet():
@@ -64,4 +64,4 @@ def test_silver_column_bonuses_include_fox():
   assert fox_bonus is not None
   assert fox_bonus.kind == BonusKind.FOX
   assert sheet.silver.column_bonuses[1] is not None
-  assert sheet.silver.column_bonuses[1].color == SheetColor.YELLOW
+  assert sheet.silver.column_bonuses[1].color == Color.YELLOW

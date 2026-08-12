@@ -126,9 +126,9 @@
   - Pink: threshold per slot, sum scoring.
   - Silver: 4×6 grid (value × color), row scoring table.
   - Fox positions, action tracks (reroll / return / extra die), round-track bonuses.
-- [ ] **0.3** Define **Dice** enum and **Color** enum; document white-die behavior.
-- [ ] **0.4** Write `docs/rules-notes.md` — edge cases pulled from the rulebook (silver platter timing, passive steal from active sheet, etc.).
-- [ ] **0.5** Collect 2–3 **manual score sheets** from real games (your own plays) as future golden-test references.
+- [x] **0.3** Define **Dice** enum and **Color** enum; document white-die behavior.
+- [x] **0.4** Write `docs/rules-notes.md` — edge cases pulled from the rulebook (silver platter timing, passive steal from active sheet, etc.).
+- [ ] **0.5** Collect 2–3 **manual score sheets** from real games (your own plays) as future golden-test references. *(Deferred — use point-value tests for now.)*
 
 
 
@@ -521,15 +521,15 @@ Use this as a living progress tracker.
 
 - [x] Repo + dependencies
 - [x] Score sheet data file + **action catalog v1**
-- [ ] Rules notes doc
+- [x] Rules notes doc
 
 
 
 ### Phase 1
 
-- [ ] Turn loop (solo)
-- [ ] All five color areas
-- [ ] Bonuses + actions + chains
+- [x] Turn loop (solo) — active pick + passive pick, 6 rounds
+- [x] Yellow / pink / blue marking (green/silver stubbed)
+- [ ] Bonuses + actions + chains (partial: automated blue/green/pink wild bonuses)
 - [ ] Scoring + foxes
 - [ ] Action log replay
 - [ ] CLI play/replay
