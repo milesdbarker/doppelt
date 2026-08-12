@@ -4,9 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from doppelt.core.action_tracks import (
+    ActionTrackSlots,
+    can_use_track,
+    circle_track,
+    empty_action_tracks,
+    use_track,
+)
 from doppelt.core.score_sheet import get_score_sheet
 from doppelt.core.silver import SILVER_ROW_COLORS
-from doppelt.core.types import SILVER_MARK_COLORS, Color
+from doppelt.core.types import SILVER_MARK_COLORS, ActionTrack, Color
 
 
 @dataclass
@@ -23,6 +30,7 @@ class PlayerSheet:
     green: list[int | None] = field(default_factory=list)
     green_stars: list[int | None] = field(default_factory=list)
     silver: dict[Color, set[int]] = field(default_factory=dict)
+    action_tracks: dict[ActionTrack, ActionTrackSlots] = field(default_factory=empty_action_tracks)
     claimed_bonuses: set[str] = field(default_factory=set)
     foxes: int = 0
 
@@ -36,7 +44,17 @@ class PlayerSheet:
             green=[None] * sheet.green.slot_count,
             green_stars=[None] * sheet.green.pair_count,
             silver={color: set() for color in SILVER_ROW_COLORS},
+            action_tracks=empty_action_tracks(),
         )
+
+    def circle_action(self, track: ActionTrack) -> bool:
+        return circle_track(self.action_tracks[track], track)
+
+    def can_use_action(self, track: ActionTrack) -> bool:
+        return can_use_track(self.action_tracks[track])
+
+    def use_action(self, track: ActionTrack) -> None:
+        use_track(self.action_tracks[track])
 
     def yellow_cell_ids_for_value(self, value: int) -> list[int]:
         sheet = get_score_sheet()
@@ -64,9 +82,25 @@ class PlayerSheet:
     def yellow_cross_count(self) -> int:
         return sum(1 for cell in self.yellow if cell.crossed)
 
+    def yellow_row_circled(self, row_index: int) -> bool:
+        cells = [cell for cell in get_score_sheet().yellow.cells if cell.row == row_index]
+        return all(self.yellow[cell.id].circled for cell in cells)
+
+    def yellow_column_circled(self, col_index: int) -> bool:
+        cells = [cell for cell in get_score_sheet().yellow.cells if cell.col == col_index]
+        return all(self.yellow[cell.id].circled for cell in cells)
+
     def can_bonus_cross_yellow(self, cell_id: int) -> bool:
         state = self.yellow[cell_id]
         return state.circled and not state.crossed
+
+    def can_bonus_circle_yellow(self, cell_id: int) -> bool:
+        return not self.yellow[cell_id].circled
+
+    def bonus_circle_yellow(self, cell_id: int) -> None:
+        if not self.can_bonus_circle_yellow(cell_id):
+            raise ValueError(f"illegal bonus yellow circle cell {cell_id}")
+        self.yellow[cell_id].circled = True
 
     def bonus_cross_yellow(self, cell_id: int) -> None:
         if not self.can_bonus_cross_yellow(cell_id):

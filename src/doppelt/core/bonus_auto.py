@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from doppelt.core.player_sheet import PlayerSheet
 from doppelt.core.score_sheet import get_score_sheet
+from doppelt.core.types import Color
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,21 @@ def automated_green_bonus(sheet: PlayerSheet) -> AutoMark | None:
     multiplier = get_score_sheet().green.multipliers[slot]
     die_face = 6 if slot % 2 == 0 else 1
     return AutoMark(area="green", slot=slot, value=die_face * multiplier)
+
+
+def automated_wild_bonus(sheet: PlayerSheet, color: Color) -> AutoMark | None:
+    if color is Color.BLUE:
+        return automated_blue_bonus(sheet)
+    if color is Color.GREEN:
+        return automated_green_bonus(sheet)
+    if color is Color.PINK:
+        return automated_pink_bonus(sheet)
+    return None
+
+
+def can_automated_wild_bonus(sheet: PlayerSheet, color: Color) -> bool:
+    """False when the track is full (12 slots) or no legal automated mark exists."""
+    return automated_wild_bonus(sheet, color) is not None
 
 
 def apply_auto_mark(sheet: PlayerSheet, mark: AutoMark) -> None:

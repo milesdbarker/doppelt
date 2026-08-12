@@ -24,7 +24,12 @@ pip install -e ".[ml]"
 ## Commands
 
 ```powershell
-pytest          # run tests
-doppelt         # CLI (stub for now)
+pytest                    # run tests
 ruff check src tests
+
+doppelt play              # interactive solo game
+doppelt play --seed 42 --save game.bin
+doppelt random --seed 42  # random legal self-play (smoke test / log generation)
+doppelt replay game.bin   # replay a binary log and print scores
+doppelt decode game.bin   # print log header and action ids
 ```

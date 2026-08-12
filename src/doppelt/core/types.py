@@ -58,14 +58,14 @@ class WhiteDieMode(str, Enum):
 
 class ActionTrack(str, Enum):
     REROLL = "reroll"
-    RETURN_DIE = "return_die"
-    EXTRA_DIE = "extra_die"
+    UNLOCK = "unlock"
+    PLUS_ONE = "plus_one"
 
 
 class BonusKind(str, Enum):
     REROLL = "reroll"
-    RETURN_DIE = "return_die"
-    EXTRA_DIE = "extra_die"
+    UNLOCK = "unlock"
+    PLUS_ONE = "plus_one"
     BONUS_WILD = "bonus_wild"
     FOX = "fox"
     BLUE_WHITE_SUM_HINT = "blue_white_sum_hint"

@@ -2,22 +2,28 @@
 
 from __future__ import annotations
 
-from doppelt.actions.catalog_v1 import mark_silver_id, mark_yellow_id
+from doppelt.actions.catalog_v1 import (
+    bonus_yellow_circle_id,
+    bonus_yellow_cross_id,
+    choose_wild_color_id,
+    mark_silver_id,
+)
 from doppelt.core.bonus_auto import (
     apply_auto_mark,
-    automated_blue_bonus,
-    automated_green_bonus,
-    automated_pink_bonus,
+    automated_wild_bonus,
+    can_automated_wild_bonus,
 )
 from doppelt.core.phases import Phase
+from doppelt.core.score_sheet import Bonus
 from doppelt.core.silver import silver_row_index
 from doppelt.core.state import GameState
-from doppelt.core.types import BonusKind, Color
+from doppelt.core.types import SCORING_COLORS, BonusKind, Color
+from doppelt.engine.action_flow import apply_action_bonus_circle
 from doppelt.engine.bonus_queue import (
     PendingBonus,
     bonus_kind_label,
     enqueue_bonuses_after_silver_mark,
-    enqueue_bonuses_after_yellow_cross,
+    enqueue_bonuses_after_yellow_circle,
     enqueue_followups_after_auto_mark,
 )
 
@@ -69,12 +75,16 @@ def legal_bonus_action_ids(state: GameState) -> list[int]:
     bonus = pending.bonus
     if bonus.kind is not BonusKind.BONUS_WILD:
         return []
+    if bonus.color is None:
+        return [choose_wild_color_id(color) for color in SCORING_COLORS]
     if bonus.color is Color.YELLOW:
-        return [
-            mark_yellow_id(cell_id)
-            for cell_id in range(len(state.sheet.yellow))
-            if state.sheet.can_bonus_cross_yellow(cell_id)
-        ]
+        actions: list[int] = []
+        for cell_id in range(len(state.sheet.yellow)):
+            if state.sheet.can_bonus_circle_yellow(cell_id):
+                actions.append(bonus_yellow_circle_id(cell_id))
+            if state.sheet.can_bonus_cross_yellow(cell_id):
+                actions.append(bonus_yellow_cross_id(cell_id))
+        return actions
     if bonus.color is Color.SILVER:
         actions: list[int] = []
         for value in range(1, 7):
@@ -84,11 +94,28 @@ def legal_bonus_action_ids(state: GameState) -> list[int]:
     return []
 
 
+def apply_bonus_choose_wild_color(state: GameState, color: Color) -> None:
+    pending = _pop_head_bonus(state)
+    bonus = pending.bonus
+    if bonus.kind is not BonusKind.BONUS_WILD or bonus.color is not None:
+        raise ValueError("expected free-color wild bonus at queue head")
+    state.bonus_events.append(f"{pending.source}:choose:{color.value}")
+    state.pending_bonuses.insert(0, PendingBonus(Bonus(BonusKind.BONUS_WILD, color), pending.source))
+    finish_bonus_phase_if_empty(state)
+
+
+def apply_bonus_yellow_circle(state: GameState, cell_id: int) -> None:
+    pending = _pop_head_bonus(state)
+    state.sheet.bonus_circle_yellow(cell_id)
+    state.bonus_events.append(f"{pending.source}:yellow_circle:{cell_id}")
+    enqueue_bonuses_after_yellow_circle(state, cell_id)
+    finish_bonus_phase_if_empty(state)
+
+
 def apply_bonus_yellow_cross(state: GameState, cell_id: int) -> None:
     pending = _pop_head_bonus(state)
     state.sheet.bonus_cross_yellow(cell_id)
     state.bonus_events.append(f"{pending.source}:yellow_cross:{cell_id}")
-    enqueue_bonuses_after_yellow_cross(state, cell_id)
     finish_bonus_phase_if_empty(state)
 
 
@@ -101,8 +128,42 @@ def apply_bonus_silver_mark(state: GameState, row: Color, value: int) -> None:
 
 
 def drain_auto_bonus_queue(state: GameState) -> None:
-    while state.pending_bonuses and _resolve_auto_bonus_head(state):
-        pass
+    while state.pending_bonuses:
+        if _resolve_auto_bonus_head(state):
+            continue
+        if _skip_impossible_player_bonus(state):
+            continue
+        break
+
+
+def _skip_impossible_player_bonus(state: GameState) -> bool:
+    pending = state.pending_bonuses[0]
+    bonus = pending.bonus
+    if bonus.kind is not BonusKind.BONUS_WILD:
+        return False
+    if bonus.color is None:
+        return False
+    if bonus.color in (Color.BLUE, Color.GREEN, Color.PINK):
+        impossible = not can_automated_wild_bonus(state.sheet, bonus.color)
+    elif bonus.color is Color.YELLOW:
+        impossible = not any(
+            state.sheet.can_bonus_circle_yellow(cell_id)
+            or state.sheet.can_bonus_cross_yellow(cell_id)
+            for cell_id in range(len(state.sheet.yellow))
+        )
+    elif bonus.color is Color.SILVER:
+        impossible = not any(
+            state.sheet.can_mark_silver(value, row)
+            for value in range(1, 7)
+            for row in state.sheet.legal_silver_rows(value)
+        )
+    else:
+        return False
+    if not impossible:
+        return False
+    state.bonus_events.append(f"{pending.source}:{bonus_kind_label(bonus)}:skipped")
+    state.pending_bonuses.pop(0)
+    return True
 
 
 def _pop_head_bonus(state: GameState) -> PendingBonus:
@@ -123,7 +184,8 @@ def _resolve_auto_bonus_head(state: GameState) -> bool:
         state.pending_bonuses.pop(0)
         return True
 
-    if bonus.kind in (BonusKind.REROLL, BonusKind.RETURN_DIE, BonusKind.EXTRA_DIE):
+    if bonus.kind in (BonusKind.REROLL, BonusKind.UNLOCK, BonusKind.PLUS_ONE):
+        apply_action_bonus_circle(state, bonus.kind)
         state.bonus_events.append(f"{pending.source}:{bonus.kind.value}")
         state.pending_bonuses.pop(0)
         return True
@@ -137,8 +199,11 @@ def _resolve_auto_bonus_head(state: GameState) -> bool:
         state.pending_bonuses.pop(0)
         return True
 
+    if bonus.color is None:
+        return False
+
     if bonus.color in (Color.BLUE, Color.GREEN, Color.PINK):
-        mark = _automated_wild_mark(state, bonus.color)
+        mark = automated_wild_bonus(state.sheet, bonus.color)
         state.pending_bonuses.pop(0)
         if mark is None:
             state.bonus_events.append(f"{pending.source}:{bonus_kind_label(bonus)}:skipped")
@@ -151,14 +216,3 @@ def _resolve_auto_bonus_head(state: GameState) -> bool:
         return True
 
     return False
-
-
-def _automated_wild_mark(state: GameState, color: Color):
-    sheet = state.sheet
-    if color is Color.BLUE:
-        return automated_blue_bonus(sheet)
-    if color is Color.GREEN:
-        return automated_green_bonus(sheet)
-    if color is Color.PINK:
-        return automated_pink_bonus(sheet)
-    return None

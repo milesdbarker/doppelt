@@ -12,7 +12,7 @@ from doppelt.engine.bonus_queue import (
     enqueue_bonuses_after_green_mark,
     enqueue_bonuses_after_pink_mark,
     enqueue_bonuses_after_silver_mark,
-    enqueue_bonuses_after_yellow_cross,
+    enqueue_bonuses_after_yellow_circle,
 )
 
 
@@ -43,8 +43,8 @@ def enqueue_mark_bonuses(
         enqueue_bonuses_after_pink_mark(state, pink_slot, pink_value)
     if silver_value is not None:
         enqueue_bonuses_after_silver_mark(state, silver_value)
-    if yellow_cell_id is not None and yellow_mark_result == "cross":
-        enqueue_bonuses_after_yellow_cross(state, yellow_cell_id)
+    if yellow_cell_id is not None and yellow_mark_result == "circle":
+        enqueue_bonuses_after_yellow_circle(state, yellow_cell_id)
 
 
 # Backward-compatible helpers for tests that call sheet-only APIs.

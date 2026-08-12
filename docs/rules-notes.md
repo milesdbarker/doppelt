@@ -15,9 +15,9 @@ Round-start grants apply to rounds 1–4 only:
 | Round | Grant |
 |-------|--------|
 | 1 | Unlock reroll action track |
-| 2 | Unlock extra die (+1) action track |
-| 3 | Unlock return die action track |
-| 4 | Black `?` bonus (player chooses color) |
+| 2 | Unlock plus one (+1) action track |
+| 3 | Unlock unlock action track |
+| 4 | Black `?` bonus — player chooses wild color (catalog IDs 146–150) |
 
 ## Solo game structure
 
@@ -69,7 +69,7 @@ above — **not** from “lowest 3 of 6.”
 
 Platter dice during active play:
 
-- Cannot be picked again by the active player (except **return die** action).
+- Cannot be picked again by the active player (except **unlock** action).
 - After the active phase ends, they become available for the **passive** phase.
 
 ---
@@ -111,7 +111,7 @@ rule). Engine: only offer fallback when `legal_platter_moves` is empty.
 ### Passive actions
 
 - **No reroll** on passive turns.
-- Return die / extra die timing follows general action rules if ever unlocked during
+- Unlock / plus one timing follows general action rules if ever unlocked during
   passive (rare in solo); reroll remains blocked.
 
 ---
@@ -123,12 +123,13 @@ When the **silver die** is chosen:
 1. Mark its value on the silver grid in a **chosen row color** (yellow / blue / green /
    pink).
 2. Every die that moves to the platter **because of this pick** (strictly lower than
-   silver) may **also** be marked on the silver grid (same rules: value + chosen row
-   color).
+   silver) must be marked on the silver grid at that die's **face value in the matching
+   row color** (yellow die → yellow row, pink die → pink row, etc.). White and silver
+   dice sent to the platter are **jokers** — any row at that face value.
 3. Dice already on the platter **before** this pick **cannot** be marked from this
    silver pick.
-4. If silver cannot mark (face value already fully marked), the silver die **cannot**
-   be chosen.
+4. Optional cascade marks are skipped automatically when no legal row remains; otherwise
+   the player must mark them (no explicit skip action).
 
 White/silver interactions: see [White die](#white-die).
 
@@ -143,13 +144,18 @@ When a mark triggers a bonus (`?` under a field, or completing a row/column):
 3. Wild (`?`) bonus: choose a color (round 4 black `?` is fully free; field `?` bonuses
    are tied to a color icon on the sheet).
 4. Yellow bonus marks require the target cell to **already be circled** before it can
-   be crossed.
+   be crossed. A yellow wild may **circle** any uncircled cell or **cross** any circled
+   uncrossed cell (catalog IDs 171–190).
 
 **Engine:** maintain a `pending_bonuses` FIFO queue on `GameState`; enter
 `RESOLVE_BONUS` phase while the queue is non-empty. Auto-resolvable bonuses (fox,
 action grants, blue/green/pink wild) drain from the head without player actions;
 yellow and silver wilds expose catalog mark actions. Follow-up bonuses enqueue at
 the **back** of the queue.
+
+**Round 4 black `?`:** at round start, enqueue `Bonus(BONUS_WILD, color=None)`; player
+chooses a color via `choose_wild_color_id()` (catalog IDs 146–150), then the chosen wild
+resolves through the same queue.
 
 Helpers: `bonus_queue.py`, `bonus_flow.py`.
 
@@ -164,8 +170,11 @@ player choice:
 | **Green** | Write **6 × multiplier** on the first slot of a pair, **1 × multiplier** on the second slot (positive vs negative square). |
 | **Pink** | Always write **6** in the next pink slot. |
 
-Helpers: `automated_blue_bonus()`, `automated_green_bonus()`, `automated_pink_bonus()`
-in `doppelt.core.bonus_auto`.
+If the target track is full (12 slots) or no legal automated mark exists, the bonus is
+**skipped** so the queue cannot deadlock. Same for impossible yellow/silver wild marks.
+
+Helpers: `automated_blue_bonus()`, `automated_green_bonus()`, `automated_pink_bonus()`,
+`can_automated_wild_bonus()` in `doppelt.core.bonus_auto`.
 
 Yellow / silver wild bonuses and action/fox bonuses still need explicit choices or
 separate rules (Phase 1.2+).
@@ -174,19 +183,25 @@ separate rules (Phase 1.2+).
 
 ## Actions — timing
 
-Three action tracks: **reroll**, **return die**, **extra die** (+1).
+Three action tracks: **reroll**, **unlock**, **plus one** (+1).
 
 | Action | Who | When |
 |--------|-----|------|
 | **Reroll** | Active only | After a roll, before picking; reroll **all** dice currently in hand (not on platter, not on sheet slots). Must reroll all — cannot keep some. |
-| **Return die** | Active only | **Before** rolling; pull one die from platter back into hand for the next roll. Illegal after rolling. |
-| **Extra die** | Active or passive | **End of turn**, after normal picks/marks are done; choose any of the 6 dice (even one already used this turn). Each physical die at most once per extra-die action chain. |
+| **Unlock** | Active only | **Before** rolling; pull one die from platter back into hand. When the hand is empty but unlock is available, the player must choose unlock or end the active turn. |
+| **Plus one** | Active or passive | **End of turn**, after normal picks/marks are done; choose any of the 6 dice (even one already used this turn). Each physical die at most once per plus-one action chain. |
 
 Unlock: circling the next slot on an action track when a sheet mark unlocks it.
 Using an action crosses off the leftmost circled slot.
 
-**Game end:** unused **extra die** actions may still be used; unused **reroll**
-actions expire.
+**Action track end bonuses:** when a circle fills the last open slot on a track
+(`circled + crossed == capacity`), enqueue the pad’s `end_bonus` immediately
+(fox on reroll, pink wild on unlock, silver wild on plus-one). Helper:
+`circle_action_track()` in `action_flow.py`.
+
+**Replay:** ``seed`` + binary action log (``export_log`` / ``replay_game`` in
+``doppelt.replay``) fully determines outcome. Only ``GameState.rng`` inside
+``apply_action`` may consume randomness; action pickers must use a separate RNG.
 
 ---
 
@@ -197,7 +212,7 @@ actions expire.
 | **Green** | Empty second slot of a pair → 0 for that pair at game end. Stars can go negative mid-game. |
 | **Pink** | Any value may be written; field `?` bonus only if value ≥ threshold. |
 | **Blue** | Each new value must be ≤ previous slot. Score = star above **last filled** slot. |
-| **Yellow** | Circles unlock row/column bonuses; only **crosses** count toward score. |
+| **Yellow** | Circles unlock row/column bonuses when a full line is circled; only **crosses** count toward score. |
 | **Silver** | Score each **row** by mark count using the row table; sum rows. |
 | **Foxes** | Each fox = points equal to **lowest** of the five color totals. If any color is 0, foxes score 0. |
 
@@ -212,10 +227,12 @@ mode:
 
 Treat the white die as **yellow, green, pink, or silver** (not blue directly).
 
-- Yellow: circle or cross the matching number in the yellow grid.
+- Yellow: circle or cross the matching number in the yellow grid (cell choice when ambiguous).
 - Green / pink: write the face value in the next slot of that track.
 - Silver: mark the face value on the silver grid in a chosen row color
   (yellow, blue, green, or pink row — not the silver die’s own “silver area” row).
+
+Active mode choice catalog IDs: 20 blue sum, 21 green, 22 silver, 23 yellow, 24 pink.
 
 Engine helper: `resolve_white_mark_color()`.
 

@@ -11,11 +11,15 @@ from doppelt.actions.catalog_v1 import (
     decode_action,
     mark_white_blue_id,
     mark_white_green_id,
+    mark_white_pink_id,
     mark_white_silver_id,
+    mark_white_yellow_id,
     mark_yellow_id,
+    passive_mark_yellow_id,
     passive_platter_id,
     passive_pool_id,
     pick_die_id,
+    plus_one_mark_yellow_id,
 )
 from doppelt.core.phases import Phase
 from doppelt.core.player_sheet import PlayerSheet
@@ -24,9 +28,22 @@ from doppelt.core.scoring import score_sheet_areas
 from doppelt.core.silver import silver_row_color
 from doppelt.core.solo_passive import DieRoll, split_passive_roll
 from doppelt.core.state import GameState
-from doppelt.core.types import ALL_DICE, Dice, blue_entry_value
+from doppelt.core.types import ALL_DICE, ActionTrack, Color, Dice, blue_entry_value
+from doppelt.engine.action_flow import (
+    apply_plus_one_pick_start,
+    apply_roll_hand,
+    apply_round_start_grants,
+    apply_unlock_platter,
+    apply_use_reroll,
+    can_choose_unlock_or_end_turn,
+    legal_active_post_roll_action_ids,
+    legal_active_pre_roll_action_ids,
+    legal_plus_one_action_ids,
+)
 from doppelt.engine.bonus_flow import (
+    apply_bonus_choose_wild_color,
     apply_bonus_silver_mark,
+    apply_bonus_yellow_circle,
     apply_bonus_yellow_cross,
     clear_bonus_queue,
     legal_bonus_action_ids,
@@ -35,7 +52,6 @@ from doppelt.engine.bonus_flow import (
 from doppelt.engine.bonuses import enqueue_mark_bonuses
 from doppelt.engine.silver_flow import (
     apply_silver_mark,
-    apply_silver_skip,
     legal_silver_mark_action_ids,
     silver_resolution_complete,
     start_silver_resolution,
@@ -46,7 +62,7 @@ SUPPORTED_PICK_DICE = frozenset(
 )
 
 
-WhiteMode = Literal["blue", "green", "silver"]
+WhiteMode = Literal["blue", "green", "pink", "silver", "yellow"]
 
 
 def new_game(seed: int, player_count: int = 1) -> GameState:
@@ -85,18 +101,20 @@ def legal_action_ids(state: GameState) -> list[int]:
 
     if state.phase is Phase.ACTIVE_PICK:
         actions: list[int] = []
-
-        for die in state.hand:
-            if die in SUPPORTED_PICK_DICE and _legal_active_pick(state, die):
-                actions.append(pick_die_id(die))
-
-        if _can_forfeit(state):
-            actions.append(FORFEIT_PICK_ID)
-
+        if state.awaiting_roll:
+            actions.extend(legal_active_pre_roll_action_ids(state))
+        else:
+            for die in state.hand:
+                if die in SUPPORTED_PICK_DICE and _legal_active_pick(state, die):
+                    actions.append(pick_die_id(die))
+            if _can_forfeit(state):
+                actions.append(FORFEIT_PICK_ID)
+            actions.extend(legal_active_post_roll_action_ids(state))
         return actions
 
     if state.phase is Phase.ACTIVE_MARK_YELLOW:
-        assert state.pending_die is Dice.YELLOW and state.pending_value is not None
+        if state.pending_value is None:
+            return []
 
         return [
             mark_yellow_id(cell_id)
@@ -118,6 +136,12 @@ def legal_action_ids(state: GameState) -> list[int]:
         if "silver" in modes:
             actions.append(mark_white_silver_id())
 
+        if "yellow" in modes:
+            actions.append(mark_white_yellow_id())
+
+        if "pink" in modes:
+            actions.append(mark_white_pink_id())
+
         return actions
 
     if state.phase is Phase.ACTIVE_MARK_SILVER:
@@ -125,6 +149,25 @@ def legal_action_ids(state: GameState) -> list[int]:
 
     if state.phase is Phase.RESOLVE_BONUS:
         return legal_bonus_action_ids(state)
+
+    if state.phase is Phase.PLUS_ONE:
+        return legal_plus_one_action_ids(state)
+
+    if state.phase is Phase.PASSIVE_MARK_YELLOW:
+        assert state.pending_value is not None
+        return [
+            passive_mark_yellow_id(cell_id)
+            for cell_id in state.sheet.yellow_cell_ids_for_value(state.pending_value)
+            if state.sheet.can_mark_yellow(cell_id, state.pending_value)
+        ]
+
+    if state.phase is Phase.PLUS_ONE_MARK_YELLOW:
+        assert state.pending_value is not None
+        return [
+            plus_one_mark_yellow_id(cell_id)
+            for cell_id in state.sheet.yellow_cell_ids_for_value(state.pending_value)
+            if state.sheet.can_mark_yellow(cell_id, state.pending_value)
+        ]
 
     if state.phase is Phase.PASSIVE_PICK:
         return _legal_passive_action_ids(state)
@@ -144,6 +187,30 @@ def apply_action(state: GameState, action_id: int) -> GameState:
     if action.kind is ActionKind.FORFEIT_PICK:
         _forfeit_pick(state)
 
+    elif action.kind is ActionKind.ROLL_HAND:
+        apply_roll_hand(state)
+
+    elif action.kind is ActionKind.USE_REROLL:
+        apply_use_reroll(state)
+
+    elif action.kind is ActionKind.UNLOCK_PLATTER:
+        assert action.die is not None
+        apply_unlock_platter(state, action.die)
+
+    elif action.kind is ActionKind.END_PLUS_ONE:
+        _end_plus_one_phase(state)
+
+    elif action.kind is ActionKind.END_ACTIVE_TURN:
+        if not state.awaiting_roll:
+            raise ValueError("end active turn is only legal before rolling")
+        if not can_choose_unlock_or_end_turn(state):
+            raise ValueError("end active turn requires empty hand with unlock available")
+        _finish_active_turn(state)
+
+    elif action.kind is ActionKind.PLUS_ONE_PICK:
+        assert action.die is not None
+        _apply_plus_one_pick(state, action.die)
+
     elif action.kind is ActionKind.PICK_DIE:
         assert action.die is not None
 
@@ -153,9 +220,27 @@ def apply_action(state: GameState, action_id: int) -> GameState:
         assert action.yellow_cell_id is not None
 
         if state.phase is Phase.RESOLVE_BONUS:
-            apply_bonus_yellow_cross(state, action.yellow_cell_id)
-        else:
+            raise ValueError("use BONUS_YELLOW_* actions in RESOLVE_BONUS")
+        elif state.phase is Phase.ACTIVE_MARK_YELLOW:
             _mark_pending_yellow(state, action.yellow_cell_id)
+        else:
+            raise ValueError(f"MARK_YELLOW not legal in phase {state.phase}")
+
+    elif action.kind is ActionKind.BONUS_YELLOW_CIRCLE:
+        assert action.yellow_cell_id is not None
+        apply_bonus_yellow_circle(state, action.yellow_cell_id)
+
+    elif action.kind is ActionKind.BONUS_YELLOW_CROSS:
+        assert action.yellow_cell_id is not None
+        apply_bonus_yellow_cross(state, action.yellow_cell_id)
+
+    elif action.kind is ActionKind.MARK_YELLOW_PASSIVE:
+        assert action.yellow_cell_id is not None
+        _mark_passive_yellow_cell(state, action.yellow_cell_id)
+
+    elif action.kind is ActionKind.MARK_YELLOW_PLUS_ONE:
+        assert action.yellow_cell_id is not None
+        _mark_plus_one_yellow_cell(state, action.yellow_cell_id)
 
     elif action.kind is ActionKind.MARK_WHITE_BLUE:
         _mark_pending_white(state, "blue")
@@ -165,6 +250,12 @@ def apply_action(state: GameState, action_id: int) -> GameState:
 
     elif action.kind is ActionKind.MARK_WHITE_SILVER:
         _mark_pending_white(state, "silver")
+
+    elif action.kind is ActionKind.MARK_WHITE_YELLOW:
+        _mark_pending_white(state, "yellow")
+
+    elif action.kind is ActionKind.MARK_WHITE_PINK:
+        _mark_pending_white(state, "pink")
 
     elif action.kind is ActionKind.MARK_SILVER:
         assert action.silver_row_index is not None
@@ -183,15 +274,16 @@ def apply_action(state: GameState, action_id: int) -> GameState:
                 _finish_silver_resolution(state)
 
     elif action.kind is ActionKind.SILVER_SKIP_CASCADE:
-        apply_silver_skip(state)
-
-        if state.phase is not Phase.RESOLVE_BONUS and silver_resolution_complete(state):
-            _finish_silver_resolution(state)
+        raise ValueError("optional silver cascade skips are not supported")
 
     elif action.kind is ActionKind.PASSIVE_PICK:
         assert action.die is not None
 
         _pick_passive_die(state, action.die, from_pool=action.passive_from_pool)
+
+    elif action.kind is ActionKind.CHOOSE_WILD_COLOR:
+        assert action.wild_color is not None
+        apply_bonus_choose_wild_color(state, action.wild_color)
 
     else:
         raise ValueError(f"unsupported action {action}")
@@ -213,6 +305,12 @@ def _process_bonus_resume(state: GameState) -> None:
     elif state.bonus_resume_after == "finish_passive":
         state.bonus_resume_after = None
         _finish_passive_turn(state)
+    elif state.bonus_resume_after == "plus_one_continue":
+        state.bonus_resume_after = None
+        if state.sheet.can_use_action(ActionTrack.PLUS_ONE):
+            state.phase = Phase.PLUS_ONE
+        else:
+            _end_plus_one_phase(state)
     elif state.bonus_resume_after == "silver_finish":
         state.bonus_resume_after = None
         if silver_resolution_complete(state):
@@ -228,6 +326,8 @@ def _roll_hand(state: GameState) -> None:
 def _clear_silver_pending(state: GameState) -> None:
 
     state.pending_silver_values = []
+
+    state.pending_silver_rows = []
 
     state.pending_silver_required = []
 
@@ -258,7 +358,11 @@ def _begin_active_turn(state: GameState) -> None:
 
     clear_bonus_queue(state)
 
-    _roll_hand(state)
+    apply_round_start_grants(state)
+
+    state.awaiting_roll = True
+
+    try_enter_bonus_phase(state, Phase.ACTIVE_PICK)
 
 
 def _blue_entry(state: GameState) -> int:
@@ -277,8 +381,14 @@ def _white_mark_modes(state: GameState) -> list[WhiteMode]:
     if state.sheet.can_mark_blue(_blue_entry(state)):
         modes.append("blue")
 
+    if _legal_yellow_mark_cells(state.sheet, state.faces[Dice.WHITE]):
+        modes.append("yellow")
+
     if state.sheet.can_mark_green_die(state.faces[Dice.WHITE]):
         modes.append("green")
+
+    if state.sheet.can_mark_pink(state.faces[Dice.WHITE]):
+        modes.append("pink")
 
     if state.sheet.can_use_silver_value(state.faces[Dice.WHITE]):
         modes.append("silver")
@@ -319,6 +429,31 @@ def _can_forfeit(state: GameState) -> bool:
     return state.picks_made < 3 and not any(_legal_active_pick(state, die) for die in state.hand)
 
 
+def _legal_yellow_mark_cells(sheet: PlayerSheet, value: int) -> list[int]:
+    return [
+        cell_id
+        for cell_id in sheet.yellow_cell_ids_for_value(value)
+        if sheet.can_mark_yellow(cell_id, value)
+    ]
+
+
+def _apply_yellow_mark_and_maybe_bonus(
+    state: GameState,
+    cell_id: int,
+    value: int,
+    *,
+    resume_phase: Phase,
+    resume_after: str,
+) -> bool:
+    result = state.sheet.mark_yellow(cell_id, value)
+    enqueue_mark_bonuses(
+        state,
+        yellow_cell_id=cell_id,
+        yellow_mark_result=result,
+    )
+    return try_enter_bonus_phase(state, resume_phase, resume_after=resume_after)
+
+
 def _mark_die_on_sheet(
     state: GameState, die: Dice, *, white_mode: WhiteMode | None = None, resume_after: str
 ) -> bool:
@@ -327,24 +462,18 @@ def _mark_die_on_sheet(
     value = state.faces[die]
 
     if die is Dice.YELLOW:
-        legal_cells = [
-            cell_id
-            for cell_id in state.sheet.yellow_cell_ids_for_value(value)
-            if state.sheet.can_mark_yellow(cell_id, value)
-        ]
+        legal_cells = _legal_yellow_mark_cells(state.sheet, value)
 
         if len(legal_cells) != 1:
             raise ValueError("yellow mark requires explicit cell choice")
 
-        result = state.sheet.mark_yellow(legal_cells[0], value)
-
-        enqueue_mark_bonuses(
+        return _apply_yellow_mark_and_maybe_bonus(
             state,
-            yellow_cell_id=legal_cells[0],
-            yellow_mark_result=result,
+            legal_cells[0],
+            value,
+            resume_phase=Phase.ACTIVE_PICK,
+            resume_after=resume_after,
         )
-
-        return try_enter_bonus_phase(state, Phase.ACTIVE_PICK, resume_after=resume_after)
 
     if die in (Dice.BLUE, Dice.WHITE) and (die is Dice.BLUE or white_mode == "blue"):
         slot = state.sheet.mark_blue(_blue_entry(state))
@@ -362,19 +491,42 @@ def _mark_die_on_sheet(
 
         return try_enter_bonus_phase(state, Phase.ACTIVE_PICK, resume_after=resume_after)
 
-    if die is Dice.PINK:
+    if die is Dice.PINK or (die is Dice.WHITE and white_mode == "pink"):
         slot = state.sheet.mark_pink(value)
 
         enqueue_mark_bonuses(state, pink_slot=slot, pink_value=value)
 
         return try_enter_bonus_phase(state, Phase.ACTIVE_PICK, resume_after=resume_after)
 
+    if die is Dice.YELLOW or (die is Dice.WHITE and white_mode == "yellow"):
+        legal_cells = _legal_yellow_mark_cells(state.sheet, value)
+
+        if len(legal_cells) != 1:
+            raise ValueError("yellow mark requires explicit cell choice")
+
+        return _apply_yellow_mark_and_maybe_bonus(
+            state,
+            legal_cells[0],
+            value,
+            resume_phase=Phase.ACTIVE_PICK,
+            resume_after=resume_after,
+        )
+
     raise ValueError(f"unsupported mark for die {die}")
 
 
-def _cascade_values_for_sent(state: GameState, sent: list[Dice]) -> list[int]:
+def _silver_row_for_platter_die(die: Dice) -> Color | None:
+    """Row fixed by die color on platter cascade; white/silver dice are jokers."""
+    if die in (Dice.WHITE, Dice.SILVER):
+        return None
+    color = die.sheet_color
+    if color is None or color is Color.SILVER:
+        return None
+    return color
 
-    return [state.faces[die] for die in sent]
+
+def _cascade_marks_for_sent(state: GameState, sent: list[Dice]) -> list[tuple[int, Color | None]]:
+    return [(state.faces[die], _silver_row_for_platter_die(die)) for die in sent]
 
 
 def _start_active_silver_pick(
@@ -384,7 +536,7 @@ def _start_active_silver_pick(
     start_silver_resolution(
         state,
         primary_value=primary_value,
-        cascade_values=_cascade_values_for_sent(state, platter_sent),
+        cascade_marks=_cascade_marks_for_sent(state, platter_sent),
         finish="active",
     )
 
@@ -408,6 +560,9 @@ def _start_white_as_silver(state: GameState, platter_sent: list[Dice]) -> None:
 
 
 def _pick_active_die(state: GameState, die: Dice) -> None:
+
+    if state.awaiting_roll:
+        raise ValueError("must roll before picking a die")
 
     if die not in state.hand:
         raise ValueError("die not in hand")
@@ -471,6 +626,11 @@ def _pick_active_die(state: GameState, die: Dice) -> None:
 
                 return
 
+            if mode == "yellow":
+                _begin_active_white_yellow_mark(state)
+
+                return
+
             if not _mark_die_on_sheet(
                 state, die, white_mode=mode, resume_after="after_active_pick"
             ):
@@ -494,24 +654,126 @@ def _pick_active_die(state: GameState, die: Dice) -> None:
         _after_active_pick(state)
 
 
+def _begin_active_white_yellow_mark(state: GameState) -> None:
+    value = state.faces[Dice.WHITE]
+    legal_cells = _legal_yellow_mark_cells(state.sheet, value)
+
+    if not legal_cells:
+        raise ValueError("no legal yellow cell for white")
+
+    if len(legal_cells) == 1:
+        if not _apply_yellow_mark_and_maybe_bonus(
+            state,
+            legal_cells[0],
+            value,
+            resume_phase=Phase.ACTIVE_PICK,
+            resume_after="after_active_pick",
+        ):
+            _after_active_pick(state)
+
+        return
+
+    state.pending_die = Dice.WHITE
+    state.pending_value = value
+    state.phase = Phase.ACTIVE_MARK_YELLOW
+
+
 def _mark_pending_yellow(state: GameState, cell_id: int) -> None:
 
     assert state.pending_value is not None
 
-    result = state.sheet.mark_yellow(cell_id, state.pending_value)
-
+    value = state.pending_value
     state.pending_die = None
-
     state.pending_value = None
 
-    enqueue_mark_bonuses(
+    if not _apply_yellow_mark_and_maybe_bonus(
         state,
-        yellow_cell_id=cell_id,
-        yellow_mark_result=result,
-    )
-
-    if not try_enter_bonus_phase(state, Phase.ACTIVE_PICK, resume_after="after_active_pick"):
+        cell_id,
+        value,
+        resume_phase=Phase.ACTIVE_PICK,
+        resume_after="after_active_pick",
+    ):
         _after_active_pick(state)
+
+
+def _mark_passive_yellow_cell(state: GameState, cell_id: int) -> None:
+    assert state.pending_value is not None
+
+    value = state.pending_value
+    state.pending_die = None
+    state.pending_value = None
+
+    if not _apply_yellow_mark_and_maybe_bonus(
+        state,
+        cell_id,
+        value,
+        resume_phase=Phase.PASSIVE_PICK,
+        resume_after="finish_passive",
+    ):
+        _finish_passive_turn(state)
+
+
+def _mark_plus_one_yellow_cell(state: GameState, cell_id: int) -> None:
+    assert state.pending_value is not None
+
+    value = state.pending_value
+    state.pending_die = None
+    state.pending_value = None
+
+    if not _apply_yellow_mark_and_maybe_bonus(
+        state,
+        cell_id,
+        value,
+        resume_phase=Phase.PLUS_ONE,
+        resume_after="plus_one_continue",
+    ):
+        _continue_plus_one_if_available(state)
+
+
+def _start_passive_yellow_mark(state: GameState, *, die_value: int | None = None) -> None:
+    value = die_value if die_value is not None else state.faces[Dice.YELLOW]
+    legal_cells = _legal_yellow_mark_cells(state.sheet, value)
+
+    if not legal_cells:
+        raise ValueError("no legal yellow cell")
+
+    if len(legal_cells) == 1:
+        if not _apply_yellow_mark_and_maybe_bonus(
+            state,
+            legal_cells[0],
+            value,
+            resume_phase=Phase.PASSIVE_PICK,
+            resume_after="finish_passive",
+        ):
+            _finish_passive_turn(state)
+        return
+
+    state.pending_die = Dice.YELLOW
+    state.pending_value = value
+    state.phase = Phase.PASSIVE_MARK_YELLOW
+
+
+def _start_plus_one_yellow_mark(state: GameState, *, die_value: int | None = None) -> None:
+    value = die_value if die_value is not None else state.faces[Dice.YELLOW]
+    legal_cells = _legal_yellow_mark_cells(state.sheet, value)
+
+    if not legal_cells:
+        raise ValueError("no legal yellow cell for plus-one")
+
+    if len(legal_cells) == 1:
+        if not _apply_yellow_mark_and_maybe_bonus(
+            state,
+            legal_cells[0],
+            value,
+            resume_phase=Phase.PLUS_ONE,
+            resume_after="plus_one_continue",
+        ):
+            _continue_plus_one_if_available(state)
+        return
+
+    state.pending_die = Dice.YELLOW
+    state.pending_value = value
+    state.phase = Phase.PLUS_ONE_MARK_YELLOW
 
 
 def _mark_pending_white(state: GameState, mode: WhiteMode) -> None:
@@ -521,10 +783,22 @@ def _mark_pending_white(state: GameState, mode: WhiteMode) -> None:
     if mode == "silver":
         _start_white_as_silver(state, state.pending_platter_sent)
 
+    elif mode == "yellow":
+        state.pending_platter_sent = []
+        _begin_active_white_yellow_mark(state)
+
+        return
+
     elif not _mark_die_on_sheet(
         state, Dice.WHITE, white_mode=mode, resume_after="after_active_pick"
     ):
         _after_active_pick(state)
+
+        state.pending_die = None
+        state.pending_value = None
+        state.pending_platter_sent = []
+
+        return
 
     state.pending_die = None
 
@@ -537,6 +811,16 @@ def _finish_silver_resolution(state: GameState) -> None:
 
     if state.silver_finish == "passive":
         _finish_passive_turn(state)
+
+        return
+
+    if state.silver_finish == "plus_one":
+        if state.sheet.can_use_action(ActionTrack.PLUS_ONE):
+            state.phase = Phase.PLUS_ONE
+
+            return
+
+        _end_plus_one_phase(state)
 
         return
 
@@ -582,17 +866,28 @@ def _complete_pick(
 
 def _after_active_pick(state: GameState) -> None:
 
-    if state.picks_made >= 3 or not state.hand:
+    if state.picks_made >= 3:
         _finish_active_turn(state)
 
         return
 
-    _roll_hand(state)
+    if not state.hand:
+        if can_choose_unlock_or_end_turn(state):
+            state.awaiting_roll = True
+            state.phase = Phase.ACTIVE_PICK
+            return
+        _finish_active_turn(state)
+        return
+
+    state.awaiting_roll = True
 
     state.phase = Phase.ACTIVE_PICK
 
 
 def _forfeit_pick(state: GameState) -> None:
+
+    if state.awaiting_roll:
+        raise ValueError("cannot forfeit before rolling")
 
     state.picks_made += 1
 
@@ -601,7 +896,7 @@ def _forfeit_pick(state: GameState) -> None:
 
         return
 
-    _roll_hand(state)
+    state.awaiting_roll = True
 
     state.phase = Phase.ACTIVE_PICK
 
@@ -615,10 +910,100 @@ def _finish_active_turn(state: GameState) -> None:
 
     state.hand = []
 
-    _begin_passive_turn(state)
+    _begin_plus_one_phase(state, after_passive=False)
 
 
-def _begin_passive_turn(state: GameState) -> None:
+def _begin_plus_one_phase(state: GameState, *, after_passive: bool) -> None:
+
+    state.plus_one_dice_used = set()
+
+    state.plus_one_after_passive = after_passive
+
+    if not state.sheet.can_use_action(ActionTrack.PLUS_ONE):
+        _end_plus_one_phase(state)
+
+        return
+
+    state.phase = Phase.PLUS_ONE
+
+
+def _end_plus_one_phase(state: GameState) -> None:
+
+    state.plus_one_dice_used = set()
+
+    if state.plus_one_after_passive:
+        advance_round_or_game_over(state)
+
+        return
+
+    begin_passive_turn(state)
+
+
+def _apply_plus_one_pick(state: GameState, die: Dice) -> None:
+
+    apply_plus_one_pick_start(state, die)
+
+    if not _legal_passive_mark(state, die, from_pool=False):
+        _continue_plus_one_if_available(state)
+
+        return
+
+    if die is Dice.SILVER:
+        start_silver_resolution(
+            state,
+            primary_value=state.faces[die],
+            cascade_marks=[],
+            finish="plus_one",
+        )
+
+        return
+
+    if die is Dice.WHITE:
+        mode = _passive_white_mode(state)
+
+        if mode is None:
+            raise ValueError("no legal plus-one mark for white")
+
+        if mode == "silver":
+            start_silver_resolution(
+                state,
+                primary_value=state.faces[die],
+                cascade_marks=[],
+                finish="plus_one",
+            )
+
+            return
+
+        if mode == "yellow":
+            _start_plus_one_yellow_mark(state, die_value=state.faces[Dice.WHITE])
+
+            return
+
+        if not _mark_die_on_sheet(state, die, white_mode=mode, resume_after="plus_one_continue"):
+            _continue_plus_one_if_available(state)
+
+        return
+
+    if die is Dice.YELLOW:
+        _start_plus_one_yellow_mark(state)
+
+        return
+
+    if not _mark_die_on_sheet(state, die, resume_after="plus_one_continue"):
+        _continue_plus_one_if_available(state)
+
+
+def _continue_plus_one_if_available(state: GameState) -> None:
+
+    if state.sheet.can_use_action(ActionTrack.PLUS_ONE):
+        state.phase = Phase.PLUS_ONE
+
+        return
+
+    _end_plus_one_phase(state)
+
+
+def begin_passive_turn(state: GameState) -> None:
 
     state.phase = Phase.PASSIVE_PICK
 
@@ -654,8 +1039,14 @@ def _passive_white_mode(state: GameState) -> WhiteMode | None:
     if "blue" in modes:
         return "blue"
 
+    if "yellow" in modes:
+        return "yellow"
+
     if "green" in modes:
         return "green"
+
+    if "pink" in modes:
+        return "pink"
 
     return "silver"
 
@@ -719,7 +1110,7 @@ def _pick_passive_die(state: GameState, die: Dice, *, from_pool: bool) -> None:
         start_silver_resolution(
             state,
             primary_value=state.faces[die],
-            cascade_values=[],
+            cascade_marks=[],
             finish="passive",
         )
 
@@ -734,46 +1125,46 @@ def _pick_passive_die(state: GameState, die: Dice, *, from_pool: bool) -> None:
             start_silver_resolution(
                 state,
                 primary_value=state.faces[die],
-                cascade_values=[],
+                cascade_marks=[],
                 finish="passive",
             )
+
+            return
+
+        if mode == "yellow":
+            _start_passive_yellow_mark(state, die_value=state.faces[Dice.WHITE])
 
             return
 
         _mark_die_on_sheet(state, die, white_mode=mode, resume_after="finish_passive")
 
     elif die is Dice.YELLOW:
-        legal_cells = [
-            cell_id
-            for cell_id in state.sheet.yellow_cell_ids_for_value(state.faces[die])
-            if state.sheet.can_mark_yellow(cell_id, state.faces[die])
-        ]
-
-        if not legal_cells:
-            raise ValueError("no legal yellow cell")
-
-        result = state.sheet.mark_yellow(legal_cells[0], state.faces[die])
-
-        enqueue_mark_bonuses(
-            state,
-            yellow_cell_id=legal_cells[0],
-            yellow_mark_result=result,
-        )
-
-        try_enter_bonus_phase(state, Phase.PASSIVE_PICK, resume_after="finish_passive")
+        _start_passive_yellow_mark(state)
 
     else:
         _mark_die_on_sheet(state, die, resume_after="finish_passive")
 
-    if state.phase is not Phase.RESOLVE_BONUS:
+    if state.phase is Phase.PASSIVE_PICK:
         _finish_passive_turn(state)
 
 
 def _finish_passive_turn(state: GameState) -> None:
 
+    _begin_plus_one_phase(state, after_passive=True)
+
+
+def advance_round_or_game_over(state: GameState) -> None:
+
     rounds_total = get_score_sheet().rounds_by_player_count[state.player_count]
 
     if state.round_index >= rounds_total:
+        if state.sheet.can_use_action(ActionTrack.PLUS_ONE):
+            state.plus_one_after_passive = True
+            state.plus_one_dice_used = set()
+            state.phase = Phase.PLUS_ONE
+
+            return
+
         state.phase = Phase.GAME_OVER
 
         return
@@ -787,6 +1178,7 @@ def play_random_game(seed: int, max_actions: int = 10_000) -> GameState:
     """Play random legal moves until terminal — useful for smoke tests."""
 
     state = new_game(seed)
+    choice_rng = random.Random(seed ^ 0xBAD5_EED)
 
     for _ in range(max_actions):
         legal = legal_action_ids(state)
@@ -794,7 +1186,7 @@ def play_random_game(seed: int, max_actions: int = 10_000) -> GameState:
         if not legal:
             break
 
-        action_id = state.rng.choice(legal)
+        action_id = choice_rng.choice(legal)
 
         apply_action(state, action_id)
 

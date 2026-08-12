@@ -1,5 +1,7 @@
 """Engine integration tests — Phase 1 milestone M1.1."""
 
+from tests.conftest import roll_hand
+
 from doppelt.actions.catalog_v1 import pick_die_id
 from doppelt.core.phases import Phase
 from doppelt.core.types import Dice
@@ -16,10 +18,12 @@ def test_new_game_starts_active_with_hand():
     assert state.phase is Phase.ACTIVE_PICK
     assert len(state.hand) == 6
     assert state.round_index == 1
+    assert state.awaiting_roll is True
 
 
 def test_blue_pick_uses_white_sum():
     state = new_game(seed=2)
+    roll_hand(state)
     state.faces[Dice.BLUE] = 3
     state.faces[Dice.WHITE] = 4
     apply_action(state, pick_die_id(Dice.BLUE))

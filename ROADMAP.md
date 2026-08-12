@@ -15,8 +15,9 @@
 5. [Phase 2 — Simulation at Scale](#phase-2--simulation-at-scale)
 6. [Phase 3 — Neural Network Agent](#phase-3--neural-network-agent)
 7. [Phase 4 — Evaluate & Iterate](#phase-4--evaluate--iterate)
-8. [Milestone Checklist](#milestone-checklist)
-9. [Risks & Decisions](#risks--decisions)
+8. [Rule Parity Checklist (solo)](#rule-parity-checklist-solo)
+9. [Milestone Checklist](#milestone-checklist)
+10. [Risks & Decisions](#risks--decisions)
 
 ---
 
@@ -47,7 +48,7 @@
 - **Active turn:** Roll all available dice → pick one → mark score sheet → lower dice go to silver platter → repeat up to 3 picks/rolls.
 - **Passive turn:** Each other player picks one die from the platter (same die can be chosen by multiple players).
 - **Scoring areas:** Each color has distinct placement and scoring rules (see Phase 1).
-- **Bonuses & actions:** Immediate chain resolution (reroll, return die from platter, extra die pick). This is the hardest part of the engine.
+- **Bonuses & actions:** Immediate chain resolution (reroll, unlock from platter, plus one pick). This is the hardest part of the engine.
 - **Foxes:** Each fox = points equal to your **lowest** color score at game end.
 - **Win condition:** Highest total score (solo: maximize your own score).
 
@@ -125,7 +126,7 @@
   - Green: multipliers per slot, pairwise subtraction stars.
   - Pink: threshold per slot, sum scoring.
   - Silver: 4×6 grid (value × color), row scoring table.
-  - Fox positions, action tracks (reroll / return / extra die), round-track bonuses.
+  - Fox positions, action tracks (reroll / unlock / plus one), round-track bonuses.
 - [x] **0.3** Define **Dice** enum and **Color** enum; document white-die behavior.
 - [x] **0.4** Write `docs/rules-notes.md` — edge cases pulled from the rulebook (silver platter timing, passive steal from active sheet, etc.).
 - [ ] **0.5** Collect 2–3 **manual score sheets** from real games (your own plays) as future golden-test references. *(Deferred — use point-value tests for now.)*
@@ -175,7 +176,7 @@ GameState
 | 6     | **Silver**             | **High**   | Color choice + extra platter marks from newly discarded dice    |
 | 7     | **White die**          | Medium     | Wild color vs blue-sum modes                                    |
 | 8     | **Bonuses**            | **High**   | Immediate free marks; chain until queue empty                   |
-| 9     | **Actions**            | **High**   | Reroll, return from platter, extra die (timing constraints)     |
+| 9     | **Actions**            | **High**   | Reroll, unlock from platter, plus one (timing constraints)     |
 | 10    | **Foxes**              | Low        | Mark foxes; end-game valuation                                  |
 | 11    | **Scoring**            | Medium     | Per-area formulas + fox multiplier                              |
 | 12    | **Passive edge cases** | Medium     | Steal from active sheet if platter unusable                     |
@@ -278,7 +279,7 @@ seed=42  catalog=v1  actions=[12, 45, 45, 102, …]
 
 - [ ] Ship `action_catalog_v1.json` (or YAML) listing every ID and its meaning — source of truth for tests and docs.
 - [ ] Unit test: catalog is contiguous, no duplicate semantics, size matches `ACTION_SPACE_SIZE`.
-- [ ] Unit test: random legal play → encode IDs → replay → identical terminal state.
+- [x] Unit test: random legal play → encode IDs → replay → identical terminal state.
 
 
 
@@ -511,11 +512,127 @@ For solo roll-and-write, **final score RL** is natural; consider auxiliary rewar
 
 ---
 
+## Rule Parity Checklist (solo)
 
+Cross-check against `docs/rules-notes.md`, `data/score_sheet/score_sheet_v1.yaml`, and the
+official rulebook. **Checked** = implemented and covered by tests where noted; **Open** = not
+yet done or known incorrect vs rulebook.
+
+### Turn & round structure
+
+| Status | Rule |
+|--------|------|
+| ✅ | 6 rounds; active phase then passive phase each round |
+| ✅ | Active turn: up to 3 roll/pick cycles; must roll before pick |
+| ✅ | On pick: mark sheet; dice strictly lower than pick → platter |
+| ✅ | After 3rd pick (or no dice left): remaining hand dice → platter |
+| ✅ | Forfeit pick — skip mark but consume one pick slot |
+| ✅ | Round-start action unlocks: reroll (R1), plus one (R2), unlock (R3) |
+| ✅ | **Round 4 black `?`** — free-color wild; player chooses color (catalog IDs 146–150) |
+| ✅ | Passive: roll 6, three lowest to platter; RNG tie-break |
+| ✅ | Passive platter pick; pool fallback only when no legal platter mark |
+| ✅ | Passive voluntary skip — no pool fallback when platter mark exists |
+| ✅ | Passive reroll blocked |
+| ✅ | Plus-one phase after active and after passive |
+| ✅ | End-game plus-one — unused plus-one actions still usable after round 6 |
+
+### Color areas — marking
+
+| Status | Rule |
+|--------|------|
+| ✅ | Yellow: circle on first visit, cross on second |
+| ✅ | Yellow: player chooses cell when multiple match (active: 10–19; passive: 151–160; plus-one: 161–170) |
+| ✅ | Blue: left-to-right, non-increasing values, white+blue sum always |
+| ✅ | Green: die face × slot multiplier; pairwise star = difference |
+| ✅ | Pink: left-to-right fill; any value 1–6 |
+| ✅ | Silver: value + row color; column-complete bonuses |
+
+### White die
+
+| Status | Rule |
+|--------|------|
+| ✅ | Blue sum mode (`blue + white`, even if blue on platter/sheet) |
+| ✅ | Yellow mode — circle/cross via yellow cell choice (catalog 23 → 10–19 / 151–160 / 161–170) |
+| ✅ | Green mode |
+| ✅ | Pink mode — write face in next pink slot (catalog 24) |
+| ✅ | Silver mode (physical silver die → platter) |
+
+### Silver die
+
+| Status | Rule |
+|--------|------|
+| ✅ | Primary mark required; cascade marks for dice sent to platter on this pick |
+| ✅ | Optional cascade skip removed — auto-skip only when no legal row; otherwise must mark |
+| ✅ | Silver cascade marks locked to platter die color row (white/silver dice = joker) |
+| ✅ | Cannot choose silver if face value already fully marked |
+| ✅ | Passive / plus-one silver — single mark, no cascade |
+| ✅ | White-as-silver: silver die discarded to platter; cascade includes it |
+
+### Bonuses & chains
+
+| Status | Rule |
+|--------|------|
+| ✅ | FIFO queue; resolve immediately; follow-ups append to back |
+| ✅ | Field `?` under blue / green / pink marks (pink threshold enforced) |
+| ✅ | Silver column-complete bonuses |
+| ✅ | Auto-resolve: fox, action-track circles, blue/green/pink wild |
+| ✅ | Player choice: yellow wild (cross), silver wild (grid mark) |
+| ✅ | Skip impossible wild bonuses (full track / no legal mark) |
+| ✅ | **Yellow wild can circle** — catalog IDs 171–180 circle, 181–190 cross |
+| ✅ | **Yellow row completion** — triggers when row fully **circled** (not cross) |
+| ✅ | **Yellow column completion** — bottom-edge bonus when column fully **circled** |
+| ✅ | **Yellow bottom-edge bonuses** — wired via `bottom_edge_bonuses[col]` on column circle |
+| ✅ | **Action track end bonuses** — fox (reroll bar), pink wild (unlock bar), silver wild (plus-one bar) when last slot circled |
+| ✅ | **Round 4 free-color wild** — enqueue + player color choice |
+
+### Actions
+
+| Status | Rule |
+|--------|------|
+| ✅ | Reroll — active only, after roll, reroll entire hand |
+| ✅ | Unlock — active only, before roll; empty hand + unlock available → unlock or end turn |
+| ✅ | Plus one — end of turn; any of 6 dice; each die once per chain |
+| ✅ | Action track state — circle on grant, cross leftmost on use |
+
+### Scoring & game end
+
+| Status | Rule |
+|--------|------|
+| ✅ | Yellow — points from cross-count table |
+| ✅ | Blue — star above last filled slot |
+| ✅ | Pink — sum of written values |
+| ✅ | Green — sum of pairwise stars (empty pair slot → 0) |
+| ✅ | Silver — row mark-count table, sum rows |
+| ✅ | Fox counter incremented when fox bonus resolves |
+| ✅ | **Fox end-game score** — each fox = lowest of five color totals; 0 if any color is 0 |
+| ✅ | **`total_score()`** — include fox points in grand total |
+| ✅ | **`is_terminal()` scores** — return correct fox breakdown (currently hard-coded 0) |
+
+### Engine infrastructure (Phase 1 deliverables)
+
+| Status | Item |
+|--------|------|
+| ✅ | `GameState.action_log` appended on every `apply_action` |
+| ✅ | Binary log export / import (`replay` module) |
+| ✅ | CLI `doppelt play` / `doppelt replay` / `doppelt random` / `doppelt decode` |
+| ⬜ | Golden replay tests (seed + action IDs → final sheet/score) |
+| ⬜ | Shipped `action_catalog_v1.json` + catalog size test |
+| ⬜ | Manual score-sheet references for golden tests (Phase 0.5) |
+
+### Multiplayer (explicitly deferred)
+
+| Status | Rule |
+|--------|------|
+| ⬜ | 2–4 players; 6 / 5 / 4 rounds by count |
+| ⬜ | Passive uses active player's platter (not fresh roll) |
+| ⬜ | Passive steal from active dice slots when platter unusable |
+| ⬜ | Multiple passives may take the same platter die |
+
+---
 
 ## Milestone Checklist
 
-Use this as a living progress tracker.
+Use this as a living progress tracker. See [Rule Parity Checklist (solo)](#rule-parity-checklist-solo) for the full rule-by-rule list.
 
 ### Phase 0
 
@@ -528,11 +645,12 @@ Use this as a living progress tracker.
 ### Phase 1
 
 - [x] Turn loop (solo) — active pick + passive pick, 6 rounds
-- [x] Yellow / pink / blue / **green** / **silver** marking
-- [x] Bonuses + chains (FIFO queue, auto blue/green/pink wild; yellow/silver wild via actions)
-- [ ] Scoring + foxes
-- [ ] Action log replay
-- [ ] CLI play/replay
+- [x] Yellow / pink / blue / **green** / **silver** marking (core legality)
+- [x] Bonuses + chains — FIFO queue; field bonuses; auto blue/green/pink wild; yellow/silver wild
+- [x] Action tracks — reroll / unlock / plus one state, timing, round 1–3 grants
+- [x] Scoring + foxes — color area totals, fox = lowest × count, `total_score()`, `is_terminal()`
+- [x] Action log replay (binary export/import)
+- [x] CLI play / replay / random / decode
 - [ ] Golden tests pass
 
 
@@ -623,4 +741,4 @@ Use this as a living progress tracker.
 
 ---
 
-*Last updated: 2026-08-11 — action log: binary uint16 catalog IDs.*
+*Last updated: 2026-08-11 — rule parity checklist added; action log: binary uint16 catalog IDs.*

@@ -1,6 +1,8 @@
 """Bonus chain resolution — FIFO queue and RESOLVE_BONUS phase."""
 
-from doppelt.actions.catalog_v1 import mark_yellow_id, pick_die_id
+from tests.conftest import roll_hand
+
+from doppelt.actions.catalog_v1 import bonus_yellow_cross_id, pick_die_id
 from doppelt.core.phases import Phase
 from doppelt.core.player_sheet import PlayerSheet
 from doppelt.core.score_sheet import Bonus
@@ -14,6 +16,8 @@ def test_blue_field_bonus_enters_resolve_phase_for_yellow_wild():
     state = new_game(seed=1)
     state.sheet.mark_blue(10)
     state.sheet.mark_blue(8)
+    state.sheet.yellow[2].circled = True
+    roll_hand(state)
     state.faces[Dice.BLUE] = 3
     state.faces[Dice.WHITE] = 2
     apply_action(state, pick_die_id(Dice.BLUE))
@@ -30,13 +34,14 @@ def test_yellow_wild_bonus_requires_player_action():
     sheet.yellow[2].circled = True
     state = new_game(seed=2)
     state.sheet = sheet
+    roll_hand(state)
     state.faces[Dice.BLUE] = 5
     state.faces[Dice.WHITE] = 3
     apply_action(state, pick_die_id(Dice.BLUE))
     assert state.phase is Phase.RESOLVE_BONUS
     assert state.pending_bonuses[0].bonus.color is Color.YELLOW
-    assert mark_yellow_id(2) in legal_action_ids(state)
-    apply_action(state, mark_yellow_id(2))
+    assert bonus_yellow_cross_id(2) in legal_action_ids(state)
+    apply_action(state, bonus_yellow_cross_id(2))
     assert state.sheet.yellow[2].crossed
     assert state.phase is Phase.ACTIVE_PICK
 
@@ -48,7 +53,7 @@ def test_bonus_queue_fifo_yellow_before_fox():
     enqueue_bonus(state, Bonus(BonusKind.FOX), "second")
     assert try_enter_bonus_phase(state, Phase.ACTIVE_PICK)
     assert state.phase is Phase.RESOLVE_BONUS
-    apply_action(state, mark_yellow_id(0))
+    apply_action(state, bonus_yellow_cross_id(0))
     assert state.sheet.yellow[0].crossed
     assert state.sheet.foxes == 1
     assert not state.pending_bonuses
@@ -77,3 +82,13 @@ def test_pink_wild_auto_chain_records_events_in_order():
     assert state.phase is Phase.ACTIVE_PICK
     assert state.sheet.green[0] == 6
     assert state.bonus_events[0].startswith("pink:3:")
+
+
+def test_full_track_skips_automated_wild_bonus_in_queue():
+    state = new_game(seed=6)
+    for _ in range(12):
+        state.sheet.mark_pink(6)
+    enqueue_bonus(state, Bonus(BonusKind.BONUS_WILD, Color.PINK), "pink:full")
+    drain_auto_bonus_queue(state)
+    assert not state.pending_bonuses
+    assert state.bonus_events[-1] == "pink:full:wild:pink:skipped"

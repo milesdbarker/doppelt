@@ -16,6 +16,9 @@ def test_solo_rounds_and_grants():
     grants = sheet.round_start_grants
     assert len(grants) == 6
     assert grants[0] is not None and grants[0].track == ActionTrack.REROLL
+    assert grants[3] is not None
+    assert grants[3].kind == BonusKind.BONUS_WILD
+    assert grants[3].color is None
     assert grants[4] is None
     assert grants[5] is None
 
@@ -50,8 +53,8 @@ def test_pink_thresholds():
 def test_action_track_lengths():
     sheet = get_score_sheet()
     assert sheet.action_tracks[ActionTrack.REROLL].slots == 7
-    assert sheet.action_tracks[ActionTrack.RETURN_DIE].slots == 6
-    assert sheet.action_tracks[ActionTrack.EXTRA_DIE].slots == 6
+    assert sheet.action_tracks[ActionTrack.UNLOCK].slots == 6
+    assert sheet.action_tracks[ActionTrack.PLUS_ONE].slots == 6
 
 
 def test_silver_column_bonuses_include_fox():

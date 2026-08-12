@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from doppelt.core.phases import Phase
 from doppelt.core.player_sheet import PlayerSheet
-from doppelt.core.types import Dice
+from doppelt.core.types import Color, Dice
 
 if TYPE_CHECKING:
     from doppelt.engine.bonus_queue import PendingBonus
@@ -32,11 +32,15 @@ class GameState:
     pending_value: int | None = None
     pending_platter_sent: list[Dice] = field(default_factory=list)
     pending_silver_values: list[int] = field(default_factory=list)
+    pending_silver_rows: list[Color | None] = field(default_factory=list)
     pending_silver_required: list[bool] = field(default_factory=list)
     silver_finish: str = "active"  # "active" | "passive"
     use_pool_fallback: bool = False
     pending_bonuses: list[PendingBonus] = field(default_factory=list)
     resume_phase: Phase | None = None
     bonus_resume_after: str | None = None
+    awaiting_roll: bool = False
+    plus_one_dice_used: set[Dice] = field(default_factory=set)
+    plus_one_after_passive: bool = False
     action_log: list[int] = field(default_factory=list)
     bonus_events: list[str] = field(default_factory=list)

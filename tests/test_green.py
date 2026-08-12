@@ -1,5 +1,7 @@
 """Green area marking tests."""
 
+from tests.conftest import roll_hand
+
 from doppelt.actions.catalog_v1 import pick_die_id
 from doppelt.core.player_sheet import PlayerSheet
 from doppelt.core.types import Dice
@@ -24,6 +26,7 @@ def test_green_pair_star_is_difference():
 
 def test_active_green_pick_in_engine():
     state = new_game(seed=99)
+    roll_hand(state)
     state.faces[Dice.GREEN] = 4
     apply_action(state, pick_die_id(Dice.GREEN))
     assert state.sheet.green[0] == 4

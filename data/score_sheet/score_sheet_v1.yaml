@@ -17,9 +17,9 @@ round_start_grants:
   - kind: action_track_unlock
     track: reroll
   - kind: action_track_unlock
-    track: extra_die
+    track: plus_one
   - kind: action_track_unlock
-    track: return_die
+    track: unlock
   - kind: bonus_wild
     color: null # player chooses color (round 4 black ?)
   - null
@@ -35,12 +35,12 @@ action_tracks:
     slots: 7
     end_bonus:
       kind: fox
-  return_die:
+  unlock:
     slots: 6
     end_bonus:
       kind: bonus_wild
       color: pink
-  extra_die:
+  plus_one:
     slots: 6
     end_bonus:
       kind: bonus_wild
@@ -52,7 +52,7 @@ silver:
   # Points for N marks in a single row (index N-1).
   row_score_by_mark_count: [2, 4, 7, 11, 16, 22]
   column_bonuses:
-    - kind: extra_die
+    - kind: plus_one
     - kind: bonus_wild
       color: yellow
     - kind: fox
@@ -80,7 +80,7 @@ yellow:
   score_by_cross_count: [3, 10, 21, 36, 55, 75, 96, 118, 141, 165]
   row_completion_bonuses:
     - { kind: bonus_wild, color: blue }
-    - { kind: return_die }
+    - { kind: unlock }
     - { kind: bonus_wild, color: yellow }
     - { kind: bonus_wild, color: green }
     - { kind: bonus_wild, color: pink }
@@ -92,7 +92,7 @@ yellow:
     - null
   bottom_edge_bonuses:
     - { kind: reroll }
-    - { kind: extra_die }
+    - { kind: plus_one }
     - { kind: bonus_wild, color: silver }
     - { kind: fox }
 
@@ -102,13 +102,13 @@ blue:
   score_by_last_slot: [1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 66, 78]
   field_bonuses:
     - { slot: 0, bonus: { kind: blue_white_sum_hint } } # pad shows blue+white dice icon
-    - { slot: 1, bonus: { kind: return_die } }
+    - { slot: 1, bonus: { kind: unlock } }
     - { slot: 2, bonus: { kind: bonus_wild, color: yellow } }
-    - { slot: 3, bonus: { kind: extra_die } }
+    - { slot: 3, bonus: { kind: plus_one } }
     - { slot: 4, bonus: { kind: reroll } }
     - { slot: 5, bonus: { kind: bonus_wild, color: pink } }
     - { slot: 6, bonus: { kind: fox } }
-    - { slot: 7, bonus: { kind: return_die } }
+    - { slot: 7, bonus: { kind: unlock } }
     - { slot: 8, bonus: { kind: bonus_wild, color: green } }
 
 green:
@@ -119,10 +119,10 @@ green:
   field_bonuses:
     - { slot: 0, bonus: { kind: reroll } }
     - { slot: 1, bonus: { kind: bonus_wild, color: blue } }
-    - { slot: 2, bonus: { kind: return_die } }
+    - { slot: 2, bonus: { kind: unlock } }
     - { slot: 3, bonus: { kind: fox } }
     - { slot: 4, bonus: { kind: bonus_wild, color: silver } }
-    - { slot: 5, bonus: { kind: extra_die } }
+    - { slot: 5, bonus: { kind: plus_one } }
     - { slot: 6, bonus: { kind: bonus_wild, color: pink } }
     - { slot: 7, bonus: { kind: bonus_wild, color: yellow } }
 
@@ -132,8 +132,8 @@ pink:
   min_values: [null, null, 2, 3, 4, 5, 6, 2, 3, 4, 5, 6]
   field_bonuses:
     - { slot: 0, bonus: { kind: reroll } }
-    - { slot: 1, bonus: { kind: return_die } }
-    - { slot: 2, bonus: { kind: extra_die } }
+    - { slot: 1, bonus: { kind: unlock } }
+    - { slot: 2, bonus: { kind: plus_one } }
     - { slot: 3, bonus: { kind: bonus_wild, color: green } }
     - { slot: 4, bonus: { kind: bonus_wild, color: yellow } }
     - { slot: 5, bonus: { kind: fox } }

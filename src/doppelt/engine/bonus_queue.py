@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from doppelt.core.player_sheet import PlayerSheet
 from doppelt.core.score_sheet import Bonus, get_score_sheet
 from doppelt.core.state import GameState
 from doppelt.core.types import BonusKind
@@ -82,19 +81,23 @@ def _yellow_row_index(cell_id: int) -> int:
     return get_score_sheet().yellow.cells[cell_id].row
 
 
-def _yellow_row_crossed(sheet: PlayerSheet, row_index: int) -> bool:
-    cells = [cell for cell in get_score_sheet().yellow.cells if cell.row == row_index]
-    return all(sheet.yellow[cell.id].crossed for cell in cells)
+def _yellow_col_index(cell_id: int) -> int:
+    return get_score_sheet().yellow.cells[cell_id].col
 
 
-def enqueue_bonuses_after_yellow_cross(state: GameState, cell_id: int) -> None:
+def enqueue_bonuses_after_yellow_circle(state: GameState, cell_id: int) -> None:
+    """Row/column edge bonuses fire when every cell in the line is circled."""
     row_index = _yellow_row_index(cell_id)
-    if not _yellow_row_crossed(state.sheet, row_index):
-        return
-    bonus = get_score_sheet().yellow.row_completion_bonuses[row_index]
-    if bonus is None:
-        return
-    enqueue_bonus_once(state, bonus, f"yellow:row:{row_index}")
+    if state.sheet.yellow_row_circled(row_index):
+        bonus = get_score_sheet().yellow.row_completion_bonuses[row_index]
+        if bonus is not None:
+            enqueue_bonus_once(state, bonus, f"yellow:row:{row_index}")
+
+    col_index = _yellow_col_index(cell_id)
+    if state.sheet.yellow_column_circled(col_index):
+        bonus = get_score_sheet().yellow.bottom_edge_bonuses[col_index]
+        if bonus is not None:
+            enqueue_bonus_once(state, bonus, f"yellow:col:{col_index}")
 
 
 def enqueue_followups_after_auto_mark(state: GameState, area: str, slot: int) -> None:
@@ -107,6 +110,8 @@ def enqueue_followups_after_auto_mark(state: GameState, area: str, slot: int) ->
 
 
 def bonus_kind_label(bonus: Bonus) -> str:
-    if bonus.kind is BonusKind.BONUS_WILD and bonus.color is not None:
+    if bonus.kind is BonusKind.BONUS_WILD:
+        if bonus.color is None:
+            return "wild:free"
         return f"wild:{bonus.color.value}"
     return bonus.kind.value
