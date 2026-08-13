@@ -47,6 +47,23 @@ class PlayerSheet:
             action_tracks=empty_action_tracks(),
         )
 
+    def copy(self) -> PlayerSheet:
+        """Independent sheet clone for one-step policy search."""
+        return PlayerSheet(
+            yellow=[YellowCellState(cell.circled, cell.crossed) for cell in self.yellow],
+            blue=list(self.blue),
+            pink=list(self.pink),
+            green=list(self.green),
+            green_stars=list(self.green_stars),
+            silver={color: set(values) for color, values in self.silver.items()},
+            action_tracks={
+                track: ActionTrackSlots(slots.circled, slots.crossed)
+                for track, slots in self.action_tracks.items()
+            },
+            claimed_bonuses=set(self.claimed_bonuses),
+            foxes=self.foxes,
+        )
+
     def circle_action(self, track: ActionTrack) -> bool:
         return circle_track(self.action_tracks[track], track)
 
@@ -200,7 +217,9 @@ class PlayerSheet:
         return value not in self.silver[row]
 
     def can_use_silver_value(self, value: int) -> bool:
-        return bool(self.legal_silver_rows(value))
+        if not 1 <= value <= 6:
+            return False
+        return any(value not in self.silver[row] for row in SILVER_ROW_COLORS)
 
     def mark_silver(self, value: int, row: Color) -> None:
         if not self.can_mark_silver(value, row):

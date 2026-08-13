@@ -306,7 +306,8 @@ state2 = replay_game(log)        # seed + action_ids → must match
 - [x] **Golden replay tests** — load action log, assert final score and sheet state.
 - [ ] **Property tests** — `apply` only legal actions; score monotonicity where applicable.
 - [ ] **Rulebook examples** — encode official examples from the PDF as tests.
-- [ ] **Fuzz test** — random legal play for 10k games; no crashes, terminal always reached.
+- [x] **Fuzz test** — random legal play for 10k games; no crashes, terminal always reached.
+  Baseline 2026-08-12: 10k random solo games in **18.424s** (~**543 games/s**); all reached `GAME_OVER`. Re-run: `python tests/test_fuzz.py`. After sim loop + trusted apply + legality early-exit, single-process ~**916 games/s**.
 
 
 
@@ -334,24 +335,46 @@ state2 = replay_game(log)        # seed + action_ids → must match
 
 ### 2.1 Performance
 
-- [ ] Profile hot path (`legal_actions`, `apply_action`, scoring).
-- [ ] Batch simulation: run N games with vectorized or multiprocessing workers.
-- [ ] Target: benchmark **games/sec** and **actions/sec** on your hardware.
+- [x] Profile hot path (`legal_actions`, `apply_action`, scoring).
+  - ~2× `legal_action_ids` per step (`play` loop + `apply_action` re-check).
+  - `_white_mark_modes` / silver legality checks dominate `legal_action_ids`.
+  - Was scoring every step via `is_terminal()`; random loop now checks `phase == GAME_OVER`.
+- [x] Batch simulation: `doppelt.sim.run_batch` + `doppelt simulate --games N --workers W`.
+- [x] Target: benchmark **games/sec** and **actions/sec** on your hardware.
+  - 2026-08-12 (this machine): **1 worker 10k = 916 games/s, 59.8k actions/s**;
+    **16 workers 10k = 4.71k games/s, 307k actions/s**
+    (was 667 / 3.94k before trusted `apply_action` + early-exit white/silver legality).
+  - Cheap wins done: `apply_action(..., check_legal=False)` in sim/random loops;
+    `_any_white_mark_legal` / `can_use_silver_value` early-exit.
+  - Remaining: still ~2× short of 10k games/s; next would be deeper `legal_action_ids` work or numba/Rust.
 - [ ] Optional: `numba` / Rust extension if Python is too slow after optimization.
 
 
 
 ### 2.2 Bots (baselines)
 
-Implement simple policies for data generation and evaluation:
+Each bot implements ``Policy.select(state, legal) -> action_id``. Factory: ``make_policy(name, seed)``.
+CLI: ``doppelt simulate --policy random_legal|greedy_immediate|heuristic``.
 
+| Bot                      | Status | Purpose                                                        |
+| ------------------------ | ------ | -------------------------------------------------------------- |
+| **RandomLegal**          | ✅     | Uniform over legal actions                                     |
+| **GreedyImmediate**      | ✅     | One-step ``total_score`` max; random among ties                |
+| **Heuristic**            | ✅     | Score + setup + 1–2 ply on mark choices; see below             |
+| **MCTS-lite** (optional) | ⬜     | Small rollout search — strong baseline without NN              |
 
-| Bot                      | Purpose                                                        |
-| ------------------------ | -------------------------------------------------------------- |
-| **RandomLegal**          | Uniform over legal actions                                     |
-| **GreedyImmediate**      | Maximize immediate marks / stars                               |
-| **Heuristic**            | Hand-tuned priorities (silver chains, fox setup, blue descent) |
-| **MCTS-lite** (optional) | Small rollout search — strong baseline without NN              |
+#### Heuristic rules (`doppelt.sim.heuristic`)
+
+Scores `total_score` plus round-scaled setup (fox coverage, yellow lines/families, blue descent, silver chains, green lefts, unused action circles). Instant marks are compared to white/yellow/silver choice follow-through (depth ≤ 2).
+
+- **Keep rolling.** Emptying the hand on pick 1 or 2 (no 2nd/3rd roll) is heavily penalized.
+- **Acceptable dice / reroll.** Even-row yellow, good green, not-too-low blue (by round), or pink that hits its field bonus count as “acceptable” (white can impersonate those). If none are showing and a reroll is available, reroll.
+- **Yellow families.** Commit to even rows (0/2/4) *or* odd (1/3); even is the default bias. Mixing families is penalized.
+- **Late color targets.** From round 5, push toward ≥21 yellow and ≥28 blue if those aren’t available yet.
+- **Silver.** ≥4 open boxes from a pick is a sweep (very good). 1–2 marks with no column bonus and no column at 3 is weak. **Two unlocks + 6 silver marks** is a special line: take it even if the hand empties, then unlock white, then the die with the best expected acceptable hit.
+- **Pink 4–7.** Hitting the slot bonus is good; missing it is bad. **Pink 5 & 6** (need 5+ / 6+) are hard: save yellow row-4 and blue slot-6 pink wilds for those slots, and set those wilds up so they can fire then.
+- **Green faces.** Prefer 4–6 on slots 0/2, 5–6 on 4, 1–3 on 1, 1–2 on 5. **Low green** (right half of a pair) is easy on roll 1 or passive; on active rolls 2–3, prefer a higher die instead.
+- **Round 4 wild.** If auto-green would be a positive 6 (left slot), take green most of the time.
 
 
 
@@ -378,10 +401,10 @@ Implement simple policies for data generation and evaluation:
 
 | Milestone | Definition of done                                |
 | --------- | ------------------------------------------------- |
-| **M2.1**  | 100k games batch run completes reliably           |
+| **M2.1**  | 100k games batch run completes reliably ✅ (2026-08-12, 16 workers, 0 unfinished) |
 | **M2.2**  | 1M game dataset with logs on disk                 |
 | **M2.3**  | Baseline report: random vs heuristic scores       |
-| **M2.4**  | ≥ 10k games/sec (or documented bottleneck + plan) |
+| **M2.4**  | ≥ 10k games/sec (or documented bottleneck + plan). Current: ~916/s single-process, ~4.7k/s ×16 workers. |
 
 
 **Estimated effort:** 2–4 weeks after Phase 1.
@@ -657,7 +680,7 @@ Use this as a living progress tracker. See [Rule Parity Checklist (solo)](#rule-
 
 ### Phase 2
 
-- [ ] Batch simulator
+- [x] Batch simulator
 - [ ] 1M game dataset
 - [ ] Baseline bots + report
 

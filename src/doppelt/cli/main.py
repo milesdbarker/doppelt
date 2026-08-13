@@ -5,7 +5,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from doppelt.cli.commands import run_decode, run_play, run_random, run_replay
+from doppelt.cli.commands import run_decode, run_play, run_random, run_replay, run_simulate
+from doppelt.sim.policy import POLICY_NAMES
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -51,6 +52,31 @@ def build_parser() -> argparse.ArgumentParser:
     decode = subparsers.add_parser("decode", help="pretty-print a binary log header and actions")
     decode.add_argument("log", type=Path, help="path to .bin log file")
 
+    simulate = subparsers.add_parser(
+        "simulate",
+        help="batch-simulate games with a baseline bot and report games/s",
+    )
+    simulate.add_argument("--games", type=int, default=1000, help="number of games (default: 1000)")
+    simulate.add_argument("--seed", type=int, default=0, help="first game seed (default: 0)")
+    simulate.add_argument(
+        "--policy",
+        choices=list(POLICY_NAMES),
+        default="random_legal",
+        help="bot policy (default: random_legal)",
+    )
+    simulate.add_argument(
+        "--workers",
+        type=int,
+        default=0,
+        help="process count (default: 0 = CPU count)",
+    )
+    simulate.add_argument(
+        "--max-actions",
+        type=int,
+        default=5_000,
+        help="safety cap on actions per game (default: 5000)",
+    )
+
     return parser
 
 
@@ -66,6 +92,14 @@ def main(argv: list[str] | None = None) -> int:
         return run_replay(args.log, verbose=args.verbose)
     if args.command == "decode":
         return run_decode(args.log)
+    if args.command == "simulate":
+        return run_simulate(
+            games=args.games,
+            seed=args.seed,
+            workers=args.workers,
+            max_actions=args.max_actions,
+            policy=args.policy,
+        )
 
     parser.error(f"unknown command {args.command!r}")
     return 2

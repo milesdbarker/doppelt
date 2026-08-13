@@ -1,5 +1,6 @@
 """Engine integration tests — Phase 1 milestone M1.1."""
 
+import pytest
 from tests.conftest import roll_hand
 
 from doppelt.actions.catalog_v1 import pick_die_id
@@ -19,6 +20,12 @@ def test_new_game_starts_active_with_hand():
     assert len(state.hand) == 6
     assert state.round_index == 1
     assert state.awaiting_roll is True
+
+
+def test_apply_action_rejects_illegal_by_default():
+    state = new_game(seed=1)
+    with pytest.raises(ValueError, match="illegal action"):
+        apply_action(state, pick_die_id(Dice.BLUE))
 
 
 def test_blue_pick_uses_white_sum():

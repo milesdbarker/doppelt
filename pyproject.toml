@@ -35,6 +35,10 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "slow: long-running fuzz / throughput tests",
+]
+addopts = ["-m", "not slow"]
 
 [tool.ruff]
 line-length = 100

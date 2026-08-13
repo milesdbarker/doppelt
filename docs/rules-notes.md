@@ -137,8 +137,9 @@ When the **silver die** is chosen:
      equals and higher values, and **those leftovers are cascade-marked too**.
 3. Dice already on the platter **before** this pick **cannot** be marked from this
    silver pick.
-4. Optional cascade marks are skipped automatically when no legal row remains; otherwise
-   the player must mark them (no explicit skip action).
+4. Optional cascade marks are skipped automatically when no legal row remains (including
+   after a bonus filled that cell); otherwise the player must mark them (no explicit skip
+   action).
 
 White/silver interactions: see [White die](#white-die).
 

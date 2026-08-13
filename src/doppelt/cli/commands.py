@@ -25,6 +25,7 @@ from doppelt.engine.game import (
     play_random_game,
 )
 from doppelt.replay import ReplayError, decode_log, export_log, import_log, replay_game
+from doppelt.sim import format_batch_result, resolve_worker_count, run_batch
 
 
 def _write_log(path: Path, state) -> None:
@@ -149,6 +150,29 @@ def run_random(
     if save_path is not None:
         _write_log(save_path, state)
     return 0 if done else 1
+
+
+def run_simulate(
+    *,
+    games: int,
+    seed: int = 0,
+    workers: int = 0,
+    max_actions: int = 5_000,
+    policy: str = "random_legal",
+    output: TextIO | None = None,
+) -> int:
+    """Batch-simulate solo games with a named policy and print throughput."""
+    out = output or sys.stdout
+    worker_count = resolve_worker_count(workers)
+    result = run_batch(
+        games,
+        seed_start=seed,
+        workers=worker_count,
+        max_actions=max_actions,
+        policy=policy,
+    )
+    print(format_batch_result(result), file=out)
+    return 0 if result.unfinished == 0 else 1
 
 
 def run_replay(

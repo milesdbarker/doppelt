@@ -30,6 +30,9 @@ ruff check src tests
 doppelt play              # interactive solo game
 doppelt play --seed 42 --save game.bin
 doppelt random --seed 42  # random legal self-play (smoke test / log generation)
+doppelt simulate --games 10000 --workers 0   # batch random games; 0 workers = CPU count
+doppelt simulate --games 1000 --policy greedy_immediate
+doppelt simulate --games 1000 --policy heuristic
 doppelt replay game.bin   # replay a binary log and print scores
 doppelt decode game.bin   # print log header and action ids
 ```

@@ -13,7 +13,8 @@ from doppelt.core.player_sheet import PlayerSheet
 from doppelt.core.scoring import score_silver
 from doppelt.core.silver import silver_row_index
 from doppelt.core.types import ALL_DICE, Color, Dice
-from doppelt.engine.game import apply_action, legal_action_ids, new_game
+from doppelt.engine.game import apply_action, is_terminal, legal_action_ids, new_game, play_random_game
+from doppelt.engine.silver_flow import skip_unmarkable_cascade_heads
 
 
 def test_mark_silver_tracks_row_and_column():
@@ -148,3 +149,27 @@ def test_passive_silver_single_mark_no_cascade():
     apply_action(state, mark_id)
     assert 3 in state.sheet.silver[Color.PINK]
     assert state.phase is Phase.ACTIVE_PICK
+
+
+def test_optional_cascade_head_skipped_when_cell_already_marked():
+    state = new_game(seed=21)
+    roll_hand(state)
+    state.phase = Phase.ACTIVE_MARK_SILVER
+    state.silver_finish = "active"
+    state.picks_made = 1
+    state.sheet.mark_silver(1, Color.GREEN)
+    state.pending_silver_values = [1, 5]
+    state.pending_silver_rows = [Color.GREEN, None]
+    state.pending_silver_required = [False, False]
+
+    skip_unmarkable_cascade_heads(state)
+    assert state.pending_silver_values == [5]
+    assert mark_silver_id(silver_row_index(Color.YELLOW), 5) in legal_action_ids(state)
+
+
+def test_bonus_occupying_cascade_cell_does_not_stuck_silver():
+    """Former fuzz stuck seeds: bonus filled a cascade cell, then no legal silver action."""
+    for seed in (12693, 22788, 25419, 29752):
+        state = play_random_game(seed=seed, max_actions=5_000)
+        done, _ = is_terminal(state)
+        assert done, f"seed {seed} stuck in {state.phase.value}"

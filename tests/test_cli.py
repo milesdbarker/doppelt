@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from doppelt.actions.catalog_v1 import ROLL_HAND_ID, describe_action
-from doppelt.cli.commands import run_decode, run_play, run_random, run_replay
+from doppelt.cli.commands import run_decode, run_play, run_random, run_replay, run_simulate
 from doppelt.cli.main import main
 from doppelt.engine.game import play_random_game
 from doppelt.replay import export_log
@@ -196,3 +196,13 @@ def test_play_one_action_then_quit():
 def test_main_random_subcommand(capsys):
     code = main(["random", "--seed", "5"])
     assert code == 0
+
+
+def test_simulate_command_reports_throughput():
+    buf = io.StringIO()
+    code = run_simulate(games=4, seed=3, workers=1, policy="random_legal", output=buf)
+    assert code == 0
+    text = buf.getvalue()
+    assert "4 random_legal games" in text
+    assert "games/s" in text
+    assert "unfinished:   0" in text

@@ -45,3 +45,37 @@ class GameState:
     plus_one_after_passive: bool = False
     action_log: list[int] = field(default_factory=list)
     bonus_events: list[str] = field(default_factory=list)
+
+    def copy_for_trial(self) -> GameState:
+        """Clone mutable state for one-step search without sharing RNG or logs."""
+        trial = GameState(
+            seed=self.seed,
+            player_count=self.player_count,
+            round_index=self.round_index,
+            phase=self.phase,
+            sheet=self.sheet.copy(),
+            rng=random.Random(),
+            faces=dict(self.faces),
+            hand=list(self.hand),
+            platter=list(self.platter),
+            passive_pool=list(self.passive_pool),
+            slots=list(self.slots),
+            picks_made=self.picks_made,
+            pending_die=self.pending_die,
+            pending_value=self.pending_value,
+            pending_platter_sent=list(self.pending_platter_sent),
+            pending_silver_values=list(self.pending_silver_values),
+            pending_silver_rows=list(self.pending_silver_rows),
+            pending_silver_required=list(self.pending_silver_required),
+            silver_finish=self.silver_finish,
+            use_pool_fallback=self.use_pool_fallback,
+            pending_bonuses=list(self.pending_bonuses),
+            resume_phase=self.resume_phase,
+            bonus_resume_after=self.bonus_resume_after,
+            awaiting_roll=self.awaiting_roll,
+            white_mark_resume_after=self.white_mark_resume_after,
+            plus_one_dice_used=set(self.plus_one_dice_used),
+            plus_one_after_passive=self.plus_one_after_passive,
+        )
+        trial.rng.setstate(self.rng.getstate())
+        return trial

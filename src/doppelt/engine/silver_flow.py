@@ -38,7 +38,7 @@ def start_silver_resolution(
     state.pending_silver_required = [True, *[False] * len(cascade_marks)]
     state.silver_finish = finish
     state.phase = Phase.ACTIVE_MARK_SILVER
-    _skip_empty_cascade_heads(state)
+    skip_unmarkable_cascade_heads(state)
 
 
 def legal_silver_mark_action_ids(state: GameState) -> list[int]:
@@ -64,7 +64,7 @@ def apply_silver_mark(state: GameState, row: Color) -> None:
     state.pending_silver_values.pop(0)
     state.pending_silver_rows.pop(0)
     state.pending_silver_required.pop(0)
-    _skip_empty_cascade_heads(state)
+    skip_unmarkable_cascade_heads(state)
     try_enter_bonus_phase(state, Phase.ACTIVE_MARK_SILVER)
 
 
@@ -72,7 +72,8 @@ def silver_resolution_complete(state: GameState) -> bool:
     return state.phase is Phase.ACTIVE_MARK_SILVER and not state.pending_silver_values
 
 
-def _skip_empty_cascade_heads(state: GameState) -> None:
+def skip_unmarkable_cascade_heads(state: GameState) -> None:
+    """Drop optional cascade heads that no longer have a legal row."""
     while state.pending_silver_values and not _legal_rows_for_pending(state):
         if state.pending_silver_required[0]:
             raise ValueError("required silver mark has no legal row")

@@ -55,6 +55,7 @@ from doppelt.engine.silver_flow import (
     apply_silver_mark,
     legal_silver_mark_action_ids,
     silver_resolution_complete,
+    skip_unmarkable_cascade_heads,
     start_silver_resolution,
 )
 
@@ -176,11 +177,12 @@ def legal_action_ids(state: GameState) -> list[int]:
     return []
 
 
-def apply_action(state: GameState, action_id: int) -> GameState:
+def apply_action(state: GameState, action_id: int, *, check_legal: bool = True) -> GameState:
+    """Apply a catalog action. Set ``check_legal=False`` when the caller already filtered."""
 
     action = decode_action(action_id)
 
-    if action_id not in legal_action_ids(state):
+    if check_legal and action_id not in legal_action_ids(state):
         raise ValueError(f"illegal action {action_id} in phase {state.phase}")
 
     state.action_log.append(action_id)
@@ -294,8 +296,10 @@ def apply_action(state: GameState, action_id: int) -> GameState:
 
     _process_bonus_resume(state)
 
-    if state.phase is Phase.ACTIVE_MARK_SILVER and silver_resolution_complete(state):
-        _finish_silver_resolution(state)
+    if state.phase is Phase.ACTIVE_MARK_SILVER:
+        skip_unmarkable_cascade_heads(state)
+        if silver_resolution_complete(state):
+            _finish_silver_resolution(state)
 
     return state
 
@@ -397,51 +401,65 @@ def _blue_entry(state: GameState) -> int:
 def _white_mark_modes(state: GameState) -> list[WhiteMode]:
 
     modes: list[WhiteMode] = []
+    white = state.faces[Dice.WHITE]
 
     if state.sheet.can_mark_blue(_blue_entry(state)):
         modes.append("blue")
 
-    if _legal_yellow_mark_cells(state.sheet, state.faces[Dice.WHITE]):
+    if _legal_yellow_mark_cells(state.sheet, white):
         modes.append("yellow")
 
-    if state.sheet.can_mark_green_die(state.faces[Dice.WHITE]):
+    if state.sheet.can_mark_green_die(white):
         modes.append("green")
 
-    if state.sheet.can_mark_pink(state.faces[Dice.WHITE]):
+    if state.sheet.can_mark_pink(white):
         modes.append("pink")
 
-    if state.sheet.can_use_silver_value(state.faces[Dice.WHITE]):
+    if state.sheet.can_use_silver_value(white):
         modes.append("silver")
 
     return modes
 
 
-def _legal_active_pick(state: GameState, die: Dice) -> bool:
+def _any_white_mark_legal(state: GameState) -> bool:
+    """True if white can mark any color — cheapest checks first, early exit."""
+    white = state.faces[Dice.WHITE]
+    sheet = state.sheet
+    if sheet.can_mark_pink(white) or sheet.can_mark_green_die(white):
+        return True
+    if sheet.can_mark_blue(_blue_entry(state)):
+        return True
+    if any(
+        not sheet.yellow[cell_id].crossed
+        for cell_id in sheet.yellow_cell_ids_for_value(white)
+    ):
+        return True
+    return sheet.can_use_silver_value(white)
 
+
+def _die_has_legal_mark(state: GameState, die: Dice) -> bool:
+    value = state.faces[die]
+    sheet = state.sheet
     if die is Dice.YELLOW:
-        value = state.faces[die]
-
         return any(
-            state.sheet.can_mark_yellow(cell_id, value)
-            for cell_id in state.sheet.yellow_cell_ids_for_value(value)
+            not sheet.yellow[cell_id].crossed
+            for cell_id in sheet.yellow_cell_ids_for_value(value)
         )
-
     if die is Dice.PINK:
-        return state.sheet.can_mark_pink(state.faces[die])
-
+        return sheet.can_mark_pink(value)
     if die is Dice.GREEN:
-        return state.sheet.can_mark_green_die(state.faces[die])
-
+        return sheet.can_mark_green_die(value)
     if die is Dice.BLUE:
-        return state.sheet.can_mark_blue(_blue_entry(state))
-
+        return sheet.can_mark_blue(_blue_entry(state))
     if die is Dice.WHITE:
-        return bool(_white_mark_modes(state))
-
+        return _any_white_mark_legal(state)
     if die is Dice.SILVER:
-        return state.sheet.can_use_silver_value(state.faces[die])
-
+        return sheet.can_use_silver_value(value)
     return False
+
+
+def _legal_active_pick(state: GameState, die: Dice) -> bool:
+    return _die_has_legal_mark(state, die)
 
 
 def _can_forfeit(state: GameState) -> bool:
@@ -1160,31 +1178,7 @@ def _legal_plus_one_action_ids(state: GameState) -> list[int]:
 def _legal_passive_mark(state: GameState, die: Dice, *, from_pool: bool) -> bool:
 
     del from_pool
-
-    value = state.faces[die]
-
-    if die is Dice.YELLOW:
-        return any(
-            state.sheet.can_mark_yellow(cell_id, value)
-            for cell_id in state.sheet.yellow_cell_ids_for_value(value)
-        )
-
-    if die is Dice.PINK:
-        return state.sheet.can_mark_pink(value)
-
-    if die is Dice.GREEN:
-        return state.sheet.can_mark_green_die(value)
-
-    if die is Dice.BLUE:
-        return state.sheet.can_mark_blue(_blue_entry(state))
-
-    if die is Dice.WHITE:
-        return bool(_white_mark_modes(state))
-
-    if die is Dice.SILVER:
-        return state.sheet.can_use_silver_value(value)
-
-    return False
+    return _die_has_legal_mark(state, die)
 
 
 def _legal_passive_action_ids(state: GameState) -> list[int]:
@@ -1291,11 +1285,9 @@ def play_random_game(seed: int, max_actions: int = 10_000) -> GameState:
 
         action_id = choice_rng.choice(legal)
 
-        apply_action(state, action_id)
+        apply_action(state, action_id, check_legal=False)
 
-        done, _ = is_terminal(state)
-
-        if done:
+        if state.phase is Phase.GAME_OVER:
             break
 
     return state
