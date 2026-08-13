@@ -321,7 +321,7 @@ def test_heuristic_avoids_low_green_on_slot_0():
     state.sheet.circle_action(ActionTrack.PLUS_ONE)
     state.faces[Dice.GREEN] = 2
     state.faces[Dice.YELLOW] = 3
-    state.plus_one_dice_used = set()
+    state.plus_one_dice_used = {Dice.WHITE, Dice.BLUE, Dice.PINK, Dice.SILVER}
 
     legal = legal_action_ids(state)
     assert plus_one_pick_id(Dice.GREEN) in legal
@@ -415,6 +415,23 @@ def test_heuristic_takes_low_green_on_passive():
     assert passive_platter_id(Dice.GREEN) in legal
     assert passive_platter_id(Dice.PINK) in legal
     assert Heuristic(0).select(state, legal) == passive_platter_id(Dice.GREEN)
+
+
+def test_heuristic_prefers_pink_fox_bonus_over_weak_yellow():
+    state = new_game(seed=28)
+    for slot in range(7):
+        state.sheet.pink[slot] = 3  # next slot 7: min 2, fox
+    state.phase = Phase.PASSIVE_PICK
+    state.faces[Dice.PINK] = 2
+    state.faces[Dice.YELLOW] = 1
+    state.platter = [Dice.PINK, Dice.YELLOW]
+    state.passive_pool = []
+    state.use_pool_fallback = False
+
+    legal = legal_action_ids(state)
+    assert passive_platter_id(Dice.PINK) in legal
+    assert passive_platter_id(Dice.YELLOW) in legal
+    assert Heuristic(0).select(state, legal) == passive_platter_id(Dice.PINK)
 
 
 def test_heuristic_round4_wild_prefers_positive_green_6():

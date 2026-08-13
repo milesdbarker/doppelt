@@ -26,6 +26,13 @@ from doppelt.engine.game import (
 )
 from doppelt.replay import ReplayError, decode_log, export_log, import_log, replay_game
 from doppelt.sim import format_batch_result, resolve_worker_count, run_batch
+from doppelt.sim.analytics import analyze_dataset, format_analytics_report, write_analytics_json
+from doppelt.sim.dataset import (
+    DEFAULT_MIX,
+    DEFAULT_SHARD_SIZE,
+    DatasetError,
+    generate_dataset,
+)
 
 
 def _write_log(path: Path, state) -> None:
@@ -173,6 +180,63 @@ def run_simulate(
     )
     print(format_batch_result(result), file=out)
     return 0 if result.unfinished == 0 else 1
+
+
+def run_dataset_generate(
+    *,
+    out_dir: Path,
+    games: int,
+    mix: str = DEFAULT_MIX,
+    shard_size: int = DEFAULT_SHARD_SIZE,
+    seed: int = 0,
+    workers: int = 0,
+    max_actions: int = 5_000,
+    resume: bool = True,
+    output: TextIO | None = None,
+) -> int:
+    """Generate mixed-bot DPLD shards (no mcts_lite)."""
+    out = output or sys.stdout
+    worker_count = resolve_worker_count(workers)
+    try:
+        manifest = generate_dataset(
+            out_dir,
+            n_games=games,
+            mix=mix,
+            shard_size=shard_size,
+            seed_start=seed,
+            workers=worker_count,
+            max_actions=max_actions,
+            resume=resume,
+            on_progress=lambda message: print(message, file=out, flush=True),
+        )
+    except DatasetError as error:
+        print(f"dataset error: {error}", file=out)
+        return 2
+    print(f"manifest: {out_dir / 'manifest.json'}", file=out)
+    return 0 if manifest.get("unfinished", 0) == 0 else 1
+
+
+def run_dataset_analyze(
+    *,
+    in_dir: Path,
+    json_path: Path | None = None,
+    output: TextIO | None = None,
+) -> int:
+    """Print score/strategy analytics for DPLD shards."""
+    out = output or sys.stdout
+    try:
+        report = analyze_dataset(in_dir)
+    except DatasetError as error:
+        print(f"dataset error: {error}", file=out)
+        return 2
+    except OSError as error:
+        print(f"Could not read {in_dir}: {error}", file=out)
+        return 1
+    print(format_analytics_report(report), file=out, end="")
+    if json_path is not None:
+        write_analytics_json(report, json_path)
+        print(f"json: {json_path}", file=out)
+    return 0
 
 
 def run_replay(

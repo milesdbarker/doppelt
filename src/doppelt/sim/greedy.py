@@ -24,13 +24,13 @@ class GreedyImmediate:
         if len(legal) == 1:
             return legal[0]
 
-        best_score = -1
+        best_score: int | None = None
         best_ids: list[int] = []
         for action_id in legal:
             trial = state.copy_for_trial()
             apply_action(trial, action_id, check_legal=False)
             score = total_score(trial.sheet)
-            if score > best_score:
+            if best_score is None or score > best_score:
                 best_score = score
                 best_ids = [action_id]
             elif score == best_score:

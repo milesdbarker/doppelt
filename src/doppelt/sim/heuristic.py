@@ -32,9 +32,10 @@ CHOICE_PHASES = frozenset(
 )
 MAX_CHOICE_DEPTH = 2
 
-FOX_PER_LIVE_COLOR = 4.0
-FOX_ALL_COLORS = 8.0
-FOX_BANKED = 7.0
+FOX_PER_LIVE_COLOR = 6.0
+FOX_ALL_COLORS = 12.0
+FOX_BANKED = 9.0
+FOX_CLAIM = 8.0
 YELLOW_PENDING_CIRCLE = 3.0
 YELLOW_PARTIAL_LINE = 4.0
 YELLOW_FAMILY_FOCUS = 2.8
@@ -119,10 +120,9 @@ def _fox_setup(sheet: PlayerSheet) -> float:
     color_scores = [areas[name] for name in ("yellow", "blue", "pink", "green", "silver")]
     live = sum(1 for score in color_scores if score > 0)
     value = FOX_PER_LIVE_COLOR * live
+    value += FOX_BANKED * sheet.foxes
     if live == 5:
         value += FOX_ALL_COLORS
-    elif sheet.foxes:
-        value += FOX_BANKED * sheet.foxes
     return value
 
 
@@ -656,6 +656,13 @@ def _unlock_adjust(state: GameState, action_id: int) -> float:
     return UNLOCK_WEIGHT * _unlock_accept_p(state, action.die)
 
 
+def _fox_claim_adjust(before: PlayerSheet, after: PlayerSheet) -> float:
+    gained = after.foxes - before.foxes
+    if gained <= 0:
+        return 0.0
+    return FOX_CLAIM * gained
+
+
 def _pink_bonus_adjust(before: PlayerSheet, after: PlayerSheet) -> float:
     slot = before.next_pink_slot()
     if slot not in PINK_BONUS_SLOTS:
@@ -688,10 +695,20 @@ def _value_after(state: GameState, action_id: int, *, depth: int, root: GameStat
             + _reroll_adjust(state, action_id)
         )
     if depth >= MAX_CHOICE_DEPTH or trial.phase not in CHOICE_PHASES:
-        return evaluate_state(trial) + prior + _pink_bonus_adjust(root.sheet, trial.sheet)
+        return (
+            evaluate_state(trial)
+            + prior
+            + _pink_bonus_adjust(root.sheet, trial.sheet)
+            + _fox_claim_adjust(root.sheet, trial.sheet)
+        )
     follow_ups = legal_action_ids(trial)
     if not follow_ups:
-        return evaluate_state(trial) + prior + _pink_bonus_adjust(root.sheet, trial.sheet)
+        return (
+            evaluate_state(trial)
+            + prior
+            + _pink_bonus_adjust(root.sheet, trial.sheet)
+            + _fox_claim_adjust(root.sheet, trial.sheet)
+        )
     return prior + max(
         _value_after(trial, follow_id, depth=depth + 1, root=root) for follow_id in follow_ups
     )

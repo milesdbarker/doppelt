@@ -13,7 +13,7 @@ from doppelt.core.state import GameState
 
 POLICY_RNG_XOR = 0xBAD5_EED
 
-POLICY_NAMES = ("random_legal", "greedy_immediate", "heuristic")
+POLICY_NAMES = ("random_legal", "greedy_immediate", "heuristic", "mcts_lite")
 
 
 class Policy(Protocol):
@@ -36,4 +36,8 @@ def make_policy(name: str, seed: int) -> Policy:
         from doppelt.sim.heuristic import Heuristic
 
         return Heuristic(seed)
+    if name == "mcts_lite":
+        from doppelt.sim.mcts_lite import MctsLite
+
+        return MctsLite(seed)
     raise ValueError(f"unknown policy {name!r}; expected one of {POLICY_NAMES}")

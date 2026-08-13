@@ -22,6 +22,7 @@ class GameOutcome:
     total_score: int
     n_actions: int
     scores: dict[str, int]
+    actions: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,7 @@ def play_with_policy(
         total_score=total_score(state.sheet),
         n_actions=len(state.action_log),
         scores=scores,
+        actions=tuple(state.action_log),
     )
 
 

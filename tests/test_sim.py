@@ -19,6 +19,7 @@ def test_random_legal_matches_play_random_game():
         outcome = play_with_policy(seed, RandomLegal(seed), max_actions=5_000)
         assert outcome.terminal
         assert outcome.n_actions == len(engine.action_log)
+        assert outcome.actions == tuple(engine.action_log)
         assert outcome.total_score == total_score(engine.sheet)
 
 
@@ -32,6 +33,13 @@ def test_run_batch_greedy_serial_all_terminal():
 def test_run_batch_heuristic_serial_all_terminal():
     result = run_batch(3, seed_start=40, workers=1, policy="heuristic")
     assert result.policy == "heuristic"
+    assert result.unfinished == 0
+    assert result.mean_score >= 0
+
+
+def test_run_batch_mcts_lite_serial_all_terminal():
+    result = run_batch(2, seed_start=50, workers=1, policy="mcts_lite")
+    assert result.policy == "mcts_lite"
     assert result.unfinished == 0
     assert result.mean_score >= 0
 

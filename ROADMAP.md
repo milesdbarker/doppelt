@@ -354,14 +354,14 @@ state2 = replay_game(log)        # seed + action_ids → must match
 ### 2.2 Bots (baselines)
 
 Each bot implements ``Policy.select(state, legal) -> action_id``. Factory: ``make_policy(name, seed)``.
-CLI: ``doppelt simulate --policy random_legal|greedy_immediate|heuristic``.
+CLI: ``doppelt simulate --policy random_legal|greedy_immediate|heuristic|mcts_lite``.
 
 | Bot                      | Status | Purpose                                                        |
 | ------------------------ | ------ | -------------------------------------------------------------- |
 | **RandomLegal**          | ✅     | Uniform over legal actions                                     |
 | **GreedyImmediate**      | ✅     | One-step ``total_score`` max; random among ties                |
 | **Heuristic**            | ✅     | Score + setup + 1–2 ply on mark choices; see below             |
-| **MCTS-lite** (optional) | ⬜     | Small rollout search — strong baseline without NN              |
+| **MCTS-lite**            | ✅     | Shallow UCB + Heuristic rollouts; chance-sampled dice          |
 
 #### Heuristic rules (`doppelt.sim.heuristic`)
 
@@ -375,24 +375,43 @@ Scores `total_score` plus round-scaled setup (fox coverage, yellow lines/familie
 - **Pink 4–7.** Hitting the slot bonus is good; missing it is bad. **Pink 5 & 6** (need 5+ / 6+) are hard: save yellow row-4 and blue slot-6 pink wilds for those slots, and set those wilds up so they can fire then.
 - **Green faces.** Prefer 4–6 on slots 0/2, 5–6 on 4, 1–3 on 1, 1–2 on 5. **Low green** (right half of a pair) is easy on roll 1 or passive; on active rolls 2–3, prefer a higher die instead.
 - **Round 4 wild.** If auto-green would be a positive 6 (left slot), take green most of the time.
+- **Foxes.** Slight extra value for live colors, banked foxes, and claiming a fox (each fox × lowest color at end).
 
 
 
+
+#### MCTS-lite (`doppelt.sim.mcts_lite`)
+
+Same `Policy` interface. Mark-choice, bonus, passive, and plus-one still use Heuristic. On **active pick** only (≤10 legal actions) it runs a small UCB1 tree at the root (~32 sims):
+
+1. Pick a legal catalog ID via UCB (normalized by ~200 pts).
+2. `copy_for_trial` and **reseed** trial dice RNG so rollouts don’t share faces.
+3. Apply the action (`check_legal=False`).
+4. Short **random** rollout (default horizon 4): sample `roll_hand` only in `ACTIVE_PICK`, otherwise random legal.
+5. Backup `evaluate_state` (or `total_score` if the trial ended).
+
+Play the most-visited root action. Intended as a stronger baseline than Heuristic, not a 1M-game generator.
 
 ### 2.3 Dataset generation
 
-- [ ] Run **1M+** solo games with mixed bots; save compact binary logs (`seed` + `uint16[]` actions).
-- [ ] Store bulk logs as `.bin` shards or columnar **Parquet** (`seed`, `actions` as fixed-length or variable-length int column, `final_score`).
-- [ ] Record metadata: bot type, final score, per-color breakdown (metadata separate from per-move logs).
+CLI: `doppelt dataset generate` → `data/datasets/solo_v1/` (gitignored).
+
+- [x] Compact **DPLD** shards: magic `DPLD`, catalog v1, one policy per shard, per record `seed` + terminal + scores (total + 6 areas) + `uint16[]` actions. Manifest `manifest.json` lists mix, seed ranges, unfinished.
+- [x] Metadata in-record + manifest (bot type / policy folder, final score, per-color breakdown). Replay via `record_to_game_log` → `replay_game`.
+- [x] Default mix **heuristic:5 / greedy_immediate:3 / random_legal:2**. `mcts_lite` is not a dataset policy (too slow).
+- [x] Run **1M+** mixed-bot solo games (shard size 50k, resume skips existing shards). 2026-08-12: `data/datasets/solo_v1/` — 500k heuristic / 300k greedy / 200k random; 78 unfinished (heuristic only).
+- [ ] Optional Parquet export (pyarrow `[ml]` extra) if columnar training I/O is needed later.
 
 
 
 ### 2.4 Analytics
 
-- [ ] Score distributions per bot.
-- [ ] Histogram of color scores and fox impact.
-- [ ] Average actions per game, bonus chain depth.
-- [ ] Identify degenerate strategies (e.g., always picking silver).
+CLI: `doppelt dataset analyze [--json analytics.json]` reads DPLD shards (no full replay).
+
+- [x] Score distributions per bot (mean/std/percentiles + total-score histogram).
+- [x] Color-area histograms and fox impact (nonzero rate, fox share of total, mean total with vs without fox).
+- [x] Average actions per game; yellow-bonus action count / streak (logged chain proxy); round-4 wild rate.
+- [x] Degenerate-strategy flags: silver-first / silver-pick share, silver as top color, zero-color (no fox), passive skip, white-as-silver.
 
 
 
@@ -402,8 +421,8 @@ Scores `total_score` plus round-scaled setup (fox coverage, yellow lines/familie
 | Milestone | Definition of done                                |
 | --------- | ------------------------------------------------- |
 | **M2.1**  | 100k games batch run completes reliably ✅ (2026-08-12, 16 workers, 0 unfinished) |
-| **M2.2**  | 1M game dataset with logs on disk                 |
-| **M2.3**  | Baseline report: random vs heuristic scores       |
+| **M2.2**  | 1M game dataset with logs on disk ✅ (2026-08-12, `data/datasets/solo_v1`, 78 unfinished heuristic) |
+| **M2.3**  | Baseline report: random vs heuristic scores ✅ (`doppelt dataset analyze`) |
 | **M2.4**  | ≥ 10k games/sec (or documented bottleneck + plan). Current: ~916/s single-process, ~4.7k/s ×16 workers. |
 
 
@@ -681,8 +700,9 @@ Use this as a living progress tracker. See [Rule Parity Checklist (solo)](#rule-
 ### Phase 2
 
 - [x] Batch simulator
-- [ ] 1M game dataset
-- [ ] Baseline bots + report
+- [x] Baseline bots (RandomLegal, GreedyImmediate, Heuristic, MctsLite)
+- [x] 1M game dataset
+- [x] Baseline report
 
 
 

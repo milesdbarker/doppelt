@@ -3,6 +3,7 @@
 from tests.conftest import roll_hand
 
 from doppelt.actions.catalog_v1 import passive_mark_yellow_id, passive_platter_id, passive_skip_id
+from doppelt.sim import greedy as greedy_mod
 from doppelt.core.phases import Phase
 from doppelt.core.types import ActionTrack, Dice
 from doppelt.engine.game import legal_action_ids, new_game
@@ -64,3 +65,18 @@ def test_greedy_immediate_reaches_terminal():
     outcome = play_with_policy(7, GreedyImmediate(7), max_actions=5_000)
     assert outcome.terminal
     assert outcome.n_actions > 0
+
+
+def test_greedy_selects_when_all_trial_scores_negative(monkeypatch):
+    state = new_game(seed=1)
+    state.phase = Phase.PASSIVE_PICK
+    state.faces[Dice.PINK] = 6
+    state.platter = [Dice.PINK]
+    state.passive_pool = []
+    state.use_pool_fallback = False
+    legal = legal_action_ids(state)
+    assert len(legal) > 1
+
+    monkeypatch.setattr(greedy_mod, "total_score", lambda _sheet: -20)
+    choice = GreedyImmediate(0).select(state, legal)
+    assert choice in legal

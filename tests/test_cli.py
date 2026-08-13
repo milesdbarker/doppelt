@@ -206,3 +206,12 @@ def test_simulate_command_reports_throughput():
     assert "4 random_legal games" in text
     assert "games/s" in text
     assert "unfinished:   0" in text
+
+
+def test_main_dataset_generate_help(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["dataset", "generate", "--help"])
+    assert exc.value.code == 0
+    text = capsys.readouterr().out
+    assert "mcts_lite" not in text or "no mcts_lite" in text
+    assert "--mix" in text
