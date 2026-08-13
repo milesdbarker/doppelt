@@ -7,8 +7,16 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TextIO
 
-from doppelt.actions.catalog_v1 import CATALOG_VERSION, describe_action
-from doppelt.cli.display import format_action_menu, format_scores, format_status
+from doppelt.actions.catalog_v1 import ActionKind, CATALOG_VERSION, decode_action, describe_action
+from doppelt.cli.display import (
+    format_action_menu,
+    format_scores,
+    format_silver_grid,
+    format_silver_pending,
+    format_status,
+    sort_actions_for_display,
+)
+from doppelt.core.types import Dice
 from doppelt.engine.game import (
     apply_action,
     is_terminal,
@@ -39,6 +47,21 @@ def _parse_action_choice(raw: str, legal: list[int]) -> int | None:
     raise ValueError(f"choice {value} is not a legal action")
 
 
+def _should_print_silver_grid(action_id: int) -> bool:
+    action = decode_action(action_id)
+    if action.kind is ActionKind.MARK_SILVER:
+        return True
+    if action.kind is ActionKind.MARK_WHITE_SILVER:
+        return True
+    if action.kind in (
+        ActionKind.PICK_DIE,
+        ActionKind.PASSIVE_PICK,
+        ActionKind.PLUS_ONE_PICK,
+    ):
+        return action.die is Dice.SILVER
+    return False
+
+
 def run_play(
     *,
     seed: int,
@@ -56,7 +79,7 @@ def run_play(
         if done:
             break
 
-        legal = legal_action_ids(state)
+        legal = sort_actions_for_display(state, legal_action_ids(state))
         if not legal:
             print("No legal actions; stopping.", file=out)
             return 1
@@ -71,7 +94,7 @@ def run_play(
                 file=out,
             )
         else:
-            print(format_action_menu(legal), file=out)
+            print(format_action_menu(legal, state), file=out)
 
             while True:
                 try:
@@ -92,6 +115,12 @@ def run_play(
                 break
 
         apply_action(state, action_id)
+        if _should_print_silver_grid(action_id):
+            print(file=out)
+            pending_silver = format_silver_pending(state)
+            if pending_silver:
+                print(pending_silver, file=out)
+            print(format_silver_grid(state.sheet), file=out)
 
     print(file=out)
     print(format_scores(state), file=out)

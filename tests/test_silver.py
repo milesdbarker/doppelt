@@ -69,6 +69,56 @@ def test_active_silver_cascade_from_platter_sent():
     assert mark_silver_id(silver_row_index(Color.YELLOW), 1) not in legal
 
 
+def test_last_pick_silver_cascades_all_leftover_hand_dice():
+    """Pick 3 leftover dice (including equals) move to platter and cascade."""
+    state = new_game(seed=14)
+    roll_hand(state)
+    for die in ALL_DICE:
+        state.faces[die] = 6
+    state.faces[Dice.SILVER] = 4
+    state.faces[Dice.YELLOW] = 2
+    state.faces[Dice.GREEN] = 4
+    state.faces[Dice.PINK] = 6
+    state.picks_made = 2
+    state.hand = [Dice.SILVER, Dice.YELLOW, Dice.GREEN, Dice.PINK]
+    state.platter = [Dice.WHITE, Dice.BLUE]
+    state.awaiting_roll = False
+
+    apply_action(state, pick_die_id(Dice.SILVER))
+
+    assert Dice.YELLOW in state.platter
+    assert Dice.GREEN in state.platter
+    assert Dice.PINK in state.platter
+    assert Dice.WHITE in state.platter
+    assert Dice.BLUE in state.platter
+    assert state.pending_silver_values == [4, 2, 4, 6]
+    assert state.pending_silver_rows == [None, Color.YELLOW, Color.GREEN, Color.PINK]
+
+
+def test_silver_does_not_cascade_dice_already_on_platter():
+    state = new_game(seed=15)
+    roll_hand(state)
+    for die in ALL_DICE:
+        state.faces[die] = 6
+    state.faces[Dice.SILVER] = 4
+    state.faces[Dice.YELLOW] = 2
+    state.faces[Dice.GREEN] = 4  # already on platter, equal value
+    state.picks_made = 1
+    state.hand = [Dice.SILVER, Dice.YELLOW, Dice.PINK, Dice.WHITE]
+    state.platter = [Dice.GREEN, Dice.BLUE]
+    state.awaiting_roll = False
+
+    apply_action(state, pick_die_id(Dice.SILVER))
+
+    assert Dice.GREEN in state.platter
+    assert Dice.YELLOW in state.platter
+    assert Dice.PINK in state.hand
+    assert state.pending_silver_values == [4, 2]
+    assert state.pending_silver_rows == [None, Color.YELLOW]
+    assert Color.GREEN not in state.pending_silver_rows
+
+
+
 def test_silver_cascade_pink_die_locks_pink_row():
     state = new_game(seed=13)
     roll_hand(state)

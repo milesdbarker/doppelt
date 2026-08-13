@@ -64,11 +64,23 @@ def test_unlock_before_roll_pulls_from_platter():
 
 def test_reroll_after_roll_rerolls_hand():
     state = new_game(seed=4)
-    state.sheet.circle_action(ActionTrack.REROLL)
     roll_hand(state)
     apply_action(state, use_reroll_id())
     assert state.sheet.action_tracks[ActionTrack.REROLL].crossed == 1
+    assert state.sheet.action_tracks[ActionTrack.REROLL].circled == 0
     assert state.awaiting_roll is False
+
+
+def test_multiple_reroll_circles_allow_multiple_uses_before_picking():
+    state = new_game(seed=41)
+    state.sheet.circle_action(ActionTrack.REROLL)
+    roll_hand(state)
+    assert state.sheet.action_tracks[ActionTrack.REROLL].circled == 2
+    apply_action(state, use_reroll_id())
+    assert use_reroll_id() in legal_action_ids(state)
+    apply_action(state, use_reroll_id())
+    assert use_reroll_id() not in legal_action_ids(state)
+    assert state.sheet.action_tracks[ActionTrack.REROLL].crossed == 2
 
 
 def test_active_pick_requires_roll_first():

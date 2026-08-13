@@ -40,6 +40,7 @@ class GameState:
     resume_phase: Phase | None = None
     bonus_resume_after: str | None = None
     awaiting_roll: bool = False
+    white_mark_resume_after: str = "after_active_pick"
     plus_one_dice_used: set[Dice] = field(default_factory=set)
     plus_one_after_passive: bool = False
     action_log: list[int] = field(default_factory=list)

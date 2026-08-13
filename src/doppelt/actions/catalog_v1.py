@@ -23,6 +23,7 @@ class ActionKind(str, Enum):
     SILVER_SKIP_CASCADE = "silver_skip_cascade"
     FORFEIT_PICK = "forfeit_pick"
     PASSIVE_PICK = "passive_pick"
+    PASSIVE_SKIP = "passive_skip"
     ROLL_HAND = "roll_hand"
     USE_REROLL = "use_reroll"
     UNLOCK_PLATTER = "unlock_platter"
@@ -53,6 +54,7 @@ ALL_DICE_INDEX: dict[Dice, int] = {die: index for index, die in enumerate(Dice)}
 # 10-19: mark yellow cell
 # 20-24: white die mode after pick
 # 40-45: passive pick platter die
+# 46: skip passive pick (take no platter/pool die)
 # 50-55: passive pick pool die
 # 100-123: mark silver cell (row × value)
 # 124: skip optional silver cascade mark
@@ -79,6 +81,7 @@ MARK_WHITE_PINK_ID = 24
 MARK_SILVER_BASE = 100
 SILVER_SKIP_CASCADE_ID = 124
 PASSIVE_PLATTER_BASE = 40
+PASSIVE_SKIP_ID = 46
 PASSIVE_POOL_BASE = 50
 ROLL_HAND_ID = 130
 USE_REROLL_ID = 131
@@ -150,6 +153,10 @@ def passive_platter_id(die: Dice) -> int:
 
 def passive_pool_id(die: Dice) -> int:
     return PASSIVE_POOL_BASE + ALL_DICE_INDEX[die]
+
+
+def passive_skip_id() -> int:
+    return PASSIVE_SKIP_ID
 
 
 def roll_hand_id() -> int:
@@ -225,6 +232,8 @@ def decode_action(action_id: int) -> Action:
     if PASSIVE_POOL_BASE <= action_id < PASSIVE_POOL_BASE + len(Dice):
         die = list(Dice)[action_id - PASSIVE_POOL_BASE]
         return Action(kind=ActionKind.PASSIVE_PICK, die=die, passive_from_pool=True)
+    if action_id == PASSIVE_SKIP_ID:
+        return Action(kind=ActionKind.PASSIVE_SKIP)
     if action_id == ROLL_HAND_ID:
         return Action(kind=ActionKind.ROLL_HAND)
     if action_id == USE_REROLL_ID:
@@ -300,6 +309,8 @@ def encode_action(action: Action) -> int:
         if action.passive_from_pool:
             return passive_pool_id(action.die)
         return passive_platter_id(action.die)
+    if action.kind is ActionKind.PASSIVE_SKIP:
+        return PASSIVE_SKIP_ID
     if action.kind is ActionKind.ROLL_HAND:
         return ROLL_HAND_ID
     if action.kind is ActionKind.USE_REROLL:
@@ -359,6 +370,8 @@ def describe_action(action_id: int) -> str:
     if kind is ActionKind.PASSIVE_PICK:
         source = "pool" if action.passive_from_pool else "platter"
         return f"passive pick {action.die.value} from {source}"
+    if kind is ActionKind.PASSIVE_SKIP:
+        return "skip (don't take a die)"
     if kind is ActionKind.ROLL_HAND:
         return "roll hand"
     if kind is ActionKind.USE_REROLL:
@@ -370,7 +383,7 @@ def describe_action(action_id: int) -> str:
     if kind is ActionKind.END_ACTIVE_TURN:
         return "end active turn"
     if kind is ActionKind.PLUS_ONE_PICK:
-        return f"plus-one pick {action.die.value}"
+        return f"extra die: use {action.die.value} at current face"
     if kind is ActionKind.CHOOSE_WILD_COLOR:
         return f"choose wild color {action.wild_color.value}"
     if kind is ActionKind.BONUS_YELLOW_CIRCLE:

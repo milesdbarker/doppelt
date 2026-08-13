@@ -12,16 +12,16 @@ def test_green_die_multiplies_by_slot_factor():
     sheet = PlayerSheet.empty()
     slot = sheet.mark_green_die(5)
     assert slot == 0
-    assert sheet.green[0] == 5  # 5 × multiplier 1
+    assert sheet.green[0] == 10  # 5 × multiplier 2
 
 
 def test_green_pair_star_is_difference():
     sheet = PlayerSheet.empty()
-    sheet.mark_green_die(5)  # slot 0: 5 × 1
+    sheet.mark_green_die(5)  # slot 0: 5 × 2
     sheet.mark_green_die(1)  # slot 1: 1 × 2
-    assert sheet.green[0] == 5
+    assert sheet.green[0] == 10
     assert sheet.green[1] == 2
-    assert sheet.green_stars[0] == 3
+    assert sheet.green_stars[0] == 8
 
 
 def test_active_green_pick_in_engine():
@@ -29,4 +29,4 @@ def test_active_green_pick_in_engine():
     roll_hand(state)
     state.faces[Dice.GREEN] = 4
     apply_action(state, pick_die_id(Dice.GREEN))
-    assert state.sheet.green[0] == 4
+    assert state.sheet.green[0] == 8

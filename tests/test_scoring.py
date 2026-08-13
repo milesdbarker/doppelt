@@ -14,7 +14,7 @@ def _sheet_with_all_color_scores() -> PlayerSheet:
     sheet.blue[0] = 5  # last slot 0 → 1 point
     sheet.pink[0] = 2  # sum → 2 points
     sheet.mark_green_die(5)
-    sheet.mark_green_die(1)  # pair star → 3 points
+    sheet.mark_green_die(1)  # pair star → 8 points (10 − 2)
     sheet.mark_silver(1, Color.YELLOW)  # 1 mark → 2 points
     return sheet
 
@@ -26,7 +26,7 @@ def test_foxes_score_lowest_color_times_fox_count():
     assert areas["yellow"] == 3
     assert areas["blue"] == 1
     assert areas["pink"] == 2
-    assert areas["green"] == 3
+    assert areas["green"] == 8
     assert areas["silver"] == 2
     assert areas["foxes"] == 2  # min color is 1 (blue) × 2 foxes
 
@@ -56,7 +56,7 @@ def test_total_score_includes_fox_points():
     sheet.foxes = 2
     areas = score_sheet_areas(sheet)
     assert total_score(sheet) == sum(areas.values())
-    assert total_score(sheet) == 3 + 1 + 2 + 3 + 2 + 2
+    assert total_score(sheet) == 3 + 1 + 2 + 8 + 2 + 2
 
 
 def test_is_terminal_reports_fox_breakdown_at_game_over():

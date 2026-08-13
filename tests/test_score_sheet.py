@@ -41,7 +41,7 @@ def test_blue_slot_scores():
 
 def test_green_multipliers():
     sheet = get_score_sheet()
-    assert sheet.green.multipliers == (1, 2, 2, 2, 1, 3, 3, 3, 2, 3, 1, 4)
+    assert sheet.green.multipliers == (2, 2, 2, 1, 3, 3, 3, 2, 3, 1, 4, 1)
     assert sheet.green.pair_count == 6
 
 
@@ -50,9 +50,39 @@ def test_pink_thresholds():
     assert sheet.pink.min_values == (None, None, 2, 3, 4, 5, 6, 2, 3, 4, 5, 6)
 
 
+def test_blue_field_bonuses_match_sheet():
+    sheet = get_score_sheet()
+    bonuses = {entry.slot: entry.bonus for entry in sheet.blue.field_bonuses}
+    assert bonuses[0] is None
+    assert bonuses[1].kind is BonusKind.UNLOCK
+    assert bonuses[2].kind is BonusKind.BONUS_WILD and bonuses[2].color is Color.YELLOW
+    assert bonuses[4].kind is BonusKind.PLUS_ONE
+    assert bonuses[5].kind is BonusKind.REROLL
+    assert bonuses[8].kind is BonusKind.FOX
+
+
+def test_green_field_bonuses_match_sheet():
+    sheet = get_score_sheet()
+    bonuses = {entry.slot: entry.bonus for entry in sheet.green.field_bonuses}
+    assert bonuses[0] is None
+    assert bonuses[1].kind is BonusKind.REROLL
+    assert bonuses[3].kind is BonusKind.BONUS_WILD and bonuses[3].color is Color.BLUE
+    assert bonuses[6].kind is BonusKind.FOX
+
+
+def test_pink_field_bonuses_match_sheet():
+    sheet = get_score_sheet()
+    bonuses = {entry.slot: entry.bonus for entry in sheet.pink.field_bonuses}
+    assert bonuses[0] is None
+    assert bonuses[1] is None
+    assert bonuses[2].kind is BonusKind.REROLL
+    assert bonuses[7].kind is BonusKind.FOX
+    assert bonuses[9].kind is BonusKind.REROLL
+
+
 def test_action_track_lengths():
     sheet = get_score_sheet()
-    assert sheet.action_tracks[ActionTrack.REROLL].slots == 7
+    assert sheet.action_tracks[ActionTrack.REROLL].slots == 6
     assert sheet.action_tracks[ActionTrack.UNLOCK].slots == 6
     assert sheet.action_tracks[ActionTrack.PLUS_ONE].slots == 6
 

@@ -22,6 +22,7 @@ htmlcov/
 data/logs/
 data/datasets/
 *.bin
+!tests/fixtures/*.bin
 
 # IDE
 .idea/

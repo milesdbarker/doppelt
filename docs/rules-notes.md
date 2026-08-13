@@ -104,9 +104,16 @@ This replaces the multiplayer **steal from active player’s dice slots** rule f
 
 ### Voluntary skip
 
-If the player **declines** to use any platter die when a legal platter mark exists,
-they **cannot** use the fallback pool (same spirit as the multiplayer “voluntary pass”
-rule). Engine: only offer fallback when `legal_platter_moves` is empty.
+The passive player may **decline to take a die** (catalog ID 46) during platter /
+pool selection only. After a die is chosen (yellow cell, white mode, silver row),
+they must mark it — skip is not offered.
+
+Skipping ends the passive turn (then plus-one if available). No sheet mark is
+written. If they skip while a legal platter mark existed, they **cannot** use the
+fallback pool — skip ends the turn entirely.
+
+Engine: only offer fallback dice when `legal_platter_moves` is empty; skip is
+always offered alongside whatever dice are legal on `PASSIVE_PICK`.
 
 ### Passive actions
 
@@ -122,10 +129,12 @@ When the **silver die** is chosen:
 
 1. Mark its value on the silver grid in a **chosen row color** (yellow / blue / green /
    pink).
-2. Every die that moves to the platter **because of this pick** (strictly lower than
-   silver) must be marked on the silver grid at that die's **face value in the matching
-   row color** (yellow die → yellow row, pink die → pink row, etc.). White and silver
-   dice sent to the platter are **jokers** — any row at that face value.
+2. Every die that **moves onto the platter because of this pick** is then marked on
+   the silver grid: face value, in that die’s color row (yellow die → yellow row, etc.).
+   White and silver dice sent this way are **jokers** (any row).
+   - Picks 1–2: only dice **strictly lower** than silver move (equals stay in hand).
+   - **Pick 3:** leftover hand dice all go to the platter (end of active turn), including
+     equals and higher values, and **those leftovers are cascade-marked too**.
 3. Dice already on the platter **before** this pick **cannot** be marked from this
    silver pick.
 4. Optional cascade marks are skipped automatically when no legal row remains; otherwise
@@ -189,7 +198,7 @@ Three action tracks: **reroll**, **unlock**, **plus one** (+1).
 |--------|-----|------|
 | **Reroll** | Active only | After a roll, before picking; reroll **all** dice currently in hand (not on platter, not on sheet slots). Must reroll all — cannot keep some. |
 | **Unlock** | Active only | **Before** rolling; pull one die from platter back into hand. When the hand is empty but unlock is available, the player must choose unlock or end the active turn. |
-| **Plus one** | Active or passive | **End of turn**, after normal picks/marks are done; choose any of the 6 dice (even one already used this turn). Each physical die at most once per plus-one action chain. |
+| **Plus one** | Active or passive | **End of turn**, after normal picks/marks are done; choose any of the 6 dice (even one already used this turn) and mark using its **current face** — the die is **not** re-rolled. Each physical die at most once per plus-one action chain. Blue still writes `blue + white`. |
 
 Unlock: circling the next slot on an action track when a sheet mark unlocks it.
 Using an action crosses off the leftmost circled slot.

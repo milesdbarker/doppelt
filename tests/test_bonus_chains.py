@@ -80,7 +80,7 @@ def test_pink_wild_auto_chain_records_events_in_order():
     )
     try_enter_bonus_phase(state, Phase.ACTIVE_PICK)
     assert state.phase is Phase.ACTIVE_PICK
-    assert state.sheet.green[0] == 6
+    assert state.sheet.green[0] == 12
     assert state.bonus_events[0].startswith("pink:3:")
 
 

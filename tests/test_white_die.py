@@ -51,3 +51,28 @@ def test_active_white_yellow_single_cell_marks_directly():
     apply_action(state, mark_white_yellow_id())
     assert state.sheet.yellow[2].circled
     assert not state.sheet.yellow[2].crossed
+
+
+def test_passive_white_enters_mode_choice_when_multiple_legal():
+    from doppelt.actions.catalog_v1 import mark_white_blue_id, mark_white_pink_id, passive_platter_id
+    from doppelt.core.types import ActionTrack
+    from doppelt.engine.game import begin_passive_turn
+
+    state = new_game(seed=10)
+    state.sheet.circle_action(ActionTrack.PLUS_ONE)
+    begin_passive_turn(state)
+    state.faces[Dice.WHITE] = 4
+    state.faces[Dice.BLUE] = 2
+    state.platter = [Dice.WHITE]
+    state.passive_pool = []
+    state.use_pool_fallback = False
+
+    apply_action(state, passive_platter_id(Dice.WHITE))
+
+    assert state.phase is Phase.ACTIVE_MARK_WHITE
+    assert mark_white_pink_id() in legal_action_ids(state)
+    assert mark_white_blue_id() in legal_action_ids(state)
+
+    apply_action(state, mark_white_pink_id())
+    assert state.sheet.pink[0] == 4
+    assert state.phase is Phase.PLUS_ONE

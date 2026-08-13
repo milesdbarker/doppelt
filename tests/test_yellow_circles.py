@@ -58,7 +58,7 @@ def test_row_bonus_triggers_when_row_fully_circled_not_on_cross():
     assert not state.pending_bonuses
 
 
-def test_column_bonus_triggers_from_bottom_edge_when_column_circled():
+def test_column_bonus_triggers_when_column_circled():
     state = new_game(seed=2)
     state.sheet.mark_yellow(2, 1)  # col 0, cell 2
     enqueue_bonuses_after_yellow_circle(state, 2)

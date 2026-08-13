@@ -303,7 +303,7 @@ state2 = replay_game(log)        # seed + action_ids → must match
 ### 1.5 Testing strategy
 
 - [ ] **Unit tests** per color area (placement legality, scoring).
-- [ ] **Golden replay tests** — load action log, assert final score and sheet state.
+- [x] **Golden replay tests** — load action log, assert final score and sheet state.
 - [ ] **Property tests** — `apply` only legal actions; score monotonicity where applicable.
 - [ ] **Rulebook examples** — encode official examples from the PDF as tests.
 - [ ] **Fuzz test** — random legal play for 10k games; no crashes, terminal always reached.
@@ -531,7 +531,7 @@ yet done or known incorrect vs rulebook.
 | ✅ | **Round 4 black `?`** — free-color wild; player chooses color (catalog IDs 146–150) |
 | ✅ | Passive: roll 6, three lowest to platter; RNG tie-break |
 | ✅ | Passive platter pick; pool fallback only when no legal platter mark |
-| ✅ | Passive voluntary skip — no pool fallback when platter mark exists |
+| ✅ | Passive voluntary skip — catalog ID 46; no pool fallback when platter mark exists |
 | ✅ | Passive reroll blocked |
 | ✅ | Plus-one phase after active and after passive |
 | ✅ | End-game plus-one — unused plus-one actions still usable after round 6 |
@@ -591,7 +591,7 @@ yet done or known incorrect vs rulebook.
 |--------|------|
 | ✅ | Reroll — active only, after roll, reroll entire hand |
 | ✅ | Unlock — active only, before roll; empty hand + unlock available → unlock or end turn |
-| ✅ | Plus one — end of turn; any of 6 dice; each die once per chain |
+| ✅ | Plus one — end of turn; use any of 6 dice at **current face** (no re-roll); each die once per chain |
 | ✅ | Action track state — circle on grant, cross leftmost on use |
 
 ### Scoring & game end
@@ -615,7 +615,7 @@ yet done or known incorrect vs rulebook.
 | ✅ | `GameState.action_log` appended on every `apply_action` |
 | ✅ | Binary log export / import (`replay` module) |
 | ✅ | CLI `doppelt play` / `doppelt replay` / `doppelt random` / `doppelt decode` |
-| ⬜ | Golden replay tests (seed + action IDs → final sheet/score) |
+| ✅ | Golden replay tests (seed + action IDs → final sheet/score) |
 | ⬜ | Shipped `action_catalog_v1.json` + catalog size test |
 | ⬜ | Manual score-sheet references for golden tests (Phase 0.5) |
 
@@ -651,7 +651,7 @@ Use this as a living progress tracker. See [Rule Parity Checklist (solo)](#rule-
 - [x] Scoring + foxes — color area totals, fox = lowest × count, `total_score()`, `is_terminal()`
 - [x] Action log replay (binary export/import)
 - [x] CLI play / replay / random / decode
-- [ ] Golden tests pass
+- [x] Golden tests pass
 
 
 

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from doppelt.actions.catalog_v1 import (
     end_active_turn_id,
-    end_plus_one_id,
-    plus_one_pick_id,
     roll_hand_id,
     unlock_platter_id,
     use_reroll_id,
@@ -116,28 +114,3 @@ def apply_unlock_platter(state: GameState, die: Dice) -> None:
     state.sheet.use_action(ActionTrack.UNLOCK)
     state.platter.remove(die)
     state.hand.append(die)
-
-
-def legal_plus_one_action_ids(state: GameState) -> list[int]:
-    actions: list[int] = [end_plus_one_id()]
-    if not state.sheet.can_use_action(ActionTrack.PLUS_ONE):
-        return actions
-    for die in Dice:
-        if die in state.plus_one_dice_used:
-            continue
-        actions.append(plus_one_pick_id(die))
-    return actions
-
-
-def apply_end_plus_one(state: GameState) -> None:
-    state.plus_one_dice_used = set()
-
-
-def apply_plus_one_pick_start(state: GameState, die: Dice) -> None:
-    if die in state.plus_one_dice_used:
-        raise ValueError("die already used in this plus-one chain")
-    if not state.sheet.can_use_action(ActionTrack.PLUS_ONE):
-        raise ValueError("no plus-one action available")
-    state.faces[die] = state.rng.randint(1, 6)
-    state.plus_one_dice_used.add(die)
-    state.sheet.use_action(ActionTrack.PLUS_ONE)

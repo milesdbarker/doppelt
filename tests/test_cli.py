@@ -16,6 +16,12 @@ def test_describe_action_roll_hand():
     assert describe_action(ROLL_HAND_ID) == "roll hand"
 
 
+def test_describe_action_passive_skip():
+    from doppelt.actions.catalog_v1 import passive_skip_id
+
+    assert describe_action(passive_skip_id()) == "skip (don't take a die)"
+
+
 def test_main_requires_subcommand():
     with pytest.raises(SystemExit) as exc:
         main([])
@@ -64,6 +70,105 @@ def test_play_quit_early(capsys):
     inputs = iter(["q"])
     code = run_play(seed=1, input_fn=lambda _: next(inputs), output=io.StringIO())
     assert code == 0
+
+
+def test_active_pick_number_in_status():
+    from tests.conftest import roll_hand
+
+    from doppelt.cli.display import format_status
+    from doppelt.engine.game import new_game
+
+    state = new_game(seed=2)
+    assert "Active pick: 1 of 3" in format_status(state)
+    roll_hand(state)
+    assert "Active pick: 1 of 3" in format_status(state)
+    state.picks_made = 1
+    assert "Active pick: 2 of 3" in format_status(state)
+    state.picks_made = 2
+    assert "Active pick: 3 of 3" in format_status(state)
+
+
+def test_hand_status_shows_face_values():
+    from tests.conftest import roll_hand
+
+    from doppelt.cli.display import format_status
+    from doppelt.core.types import Dice
+    from doppelt.engine.game import new_game
+
+    state = new_game(seed=2)
+    roll_hand(state)
+    state.faces[Dice.YELLOW] = 1
+    state.faces[Dice.BLUE] = 6
+    text = format_status(state)
+    assert "Hand:" in text
+    assert "yellow=1" in text
+    assert "blue=6" in text
+
+
+def test_silver_pending_lists_cascade_marks():
+    from tests.conftest import roll_hand
+
+    from doppelt.actions.catalog_v1 import pick_die_id
+    from doppelt.cli.display import format_silver_pending
+    from doppelt.core.types import ALL_DICE, Dice
+    from doppelt.engine.game import apply_action, new_game
+
+    state = new_game(seed=16)
+    roll_hand(state)
+    for die in ALL_DICE:
+        state.faces[die] = 6
+    state.faces[Dice.SILVER] = 4
+    state.faces[Dice.YELLOW] = 2
+    apply_action(state, pick_die_id(Dice.SILVER))
+    text = format_silver_pending(state)
+    assert text is not None
+    assert "primary 4" in text
+    assert "platter yellow die 2" in text
+
+    from doppelt.cli.display import format_silver_grid
+    from doppelt.core.player_sheet import PlayerSheet
+    from doppelt.core.types import Color
+
+    sheet = PlayerSheet.empty()
+    sheet.mark_silver(3, Color.YELLOW)
+    sheet.mark_silver(3, Color.BLUE)
+    sheet.mark_silver(5, Color.PINK)
+    text = format_silver_grid(sheet)
+    assert "X = marked" in text
+    assert "yellow=3" in text
+    assert "blue=3" in text
+    assert "pink=5" in text
+    assert "green=" not in text.split("marked:")[1]
+
+
+
+def test_active_pick_actions_sorted_by_face_value():
+    from tests.conftest import roll_hand
+
+    from doppelt.actions.catalog_v1 import ActionKind, decode_action, pick_die_id
+    from doppelt.cli.display import sort_actions_for_display
+    from doppelt.core.types import Dice
+    from doppelt.engine.game import legal_action_ids, new_game
+
+    state = new_game(seed=2)
+    roll_hand(state)
+    state.faces[Dice.PINK] = 2
+    state.faces[Dice.GREEN] = 5
+    state.faces[Dice.YELLOW] = 3
+    state.faces[Dice.BLUE] = 4
+    state.faces[Dice.WHITE] = 6
+    state.faces[Dice.SILVER] = 1
+
+    legal = sort_actions_for_display(state, legal_action_ids(state))
+    pick_faces = [
+        state.faces[decode_action(action_id).die]
+        for action_id in legal
+        if decode_action(action_id).kind is ActionKind.PICK_DIE
+        and decode_action(action_id).die is not None
+    ]
+    assert pick_faces == sorted(pick_faces)
+    assert pick_die_id(Dice.SILVER) in legal
+
 
 
 def test_play_auto_selects_when_only_one_action():

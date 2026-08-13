@@ -37,7 +37,7 @@ def test_green_bonus_positive_vs_negative_square():
     first = automated_green_bonus(sheet)
     assert first is not None
     assert first.slot == 0
-    assert first.value == 6  # 6 × multiplier 1
+    assert first.value == 12  # 6 × multiplier 2
 
     apply_auto_mark(sheet, first)
     second = automated_green_bonus(sheet)

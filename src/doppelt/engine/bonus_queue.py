@@ -95,7 +95,7 @@ def enqueue_bonuses_after_yellow_circle(state: GameState, cell_id: int) -> None:
 
     col_index = _yellow_col_index(cell_id)
     if state.sheet.yellow_column_circled(col_index):
-        bonus = get_score_sheet().yellow.bottom_edge_bonuses[col_index]
+        bonus = get_score_sheet().yellow.column_completion_bonuses[col_index]
         if bonus is not None:
             enqueue_bonus_once(state, bonus, f"yellow:col:{col_index}")
 

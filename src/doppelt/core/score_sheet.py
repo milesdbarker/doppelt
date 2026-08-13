@@ -42,7 +42,7 @@ class YellowCell:
 @dataclass(frozen=True)
 class FieldBonus:
     slot: int
-    bonus: Bonus
+    bonus: Bonus | None
 
 
 @dataclass(frozen=True)
@@ -65,7 +65,6 @@ class YellowArea:
     score_by_cross_count: tuple[int, ...]
     row_completion_bonuses: tuple[Bonus | None, ...]
     column_completion_bonuses: tuple[Bonus | None, ...]
-    bottom_edge_bonuses: tuple[Bonus | None, ...]
 
 
 @dataclass(frozen=True)
@@ -170,7 +169,6 @@ def load_score_sheet(path: Path | None = None) -> ScoreSheet:
         score_by_cross_count=tuple(yellow_raw["score_by_cross_count"]),
         row_completion_bonuses=_tuple_bonuses(yellow_raw["row_completion_bonuses"]),
         column_completion_bonuses=_tuple_bonuses(yellow_raw["column_completion_bonuses"]),
-        bottom_edge_bonuses=_tuple_bonuses(yellow_raw["bottom_edge_bonuses"]),
     )
 
     blue_raw = raw["blue"]

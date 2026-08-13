@@ -20,10 +20,10 @@ def test_score_sheet_action_track_end_bonuses():
 def test_reroll_track_end_bonus_grants_fox():
     state = new_game(seed=1)
     assert state.sheet.action_tracks[ActionTrack.REROLL].circled == 1
-    for index in range(6):
+    for index in range(5):
         enqueue_bonus(state, Bonus(BonusKind.REROLL), f"fill:{index}")
     drain_auto_bonus_queue(state)
-    assert state.sheet.action_tracks[ActionTrack.REROLL].circled == 7
+    assert state.sheet.action_tracks[ActionTrack.REROLL].circled == 6
     assert state.sheet.foxes == 1
 
 
