@@ -1,7 +1,9 @@
-"""Versioned GameState encoding for the policy network (encoding_v1).
+"""Versioned GameState encoding for the policy network (encoding_v2).
 
 Features are a fixed-length float vector. The legal-action mask uses the same
-index space as ``ACTION_SPACE_SIZE`` (catalog v1).
+index space as ``ACTION_SPACE_SIZE`` (catalog v1). encoding_v2 adds pick index,
+hand ranks, empty-hand flags, live scores / fox floor, and round-scaled targets.
+It does **not** add catalog IDs. Old encoding_v1 checkpoints will not load.
 """
 
 from __future__ import annotations
@@ -12,13 +14,22 @@ from doppelt.actions.catalog_v1 import ACTION_SPACE_SIZE
 from doppelt.core.phases import Phase
 from doppelt.core.player_sheet import PlayerSheet
 from doppelt.core.score_sheet import get_score_sheet
+from doppelt.core.scoring import score_blue, score_green, score_pink, score_silver, score_yellow
 from doppelt.core.silver import SILVER_ROW_COLORS
 from doppelt.core.state import GameState
 from doppelt.core.types import ALL_DICE, SCORING_COLORS, ActionTrack, BonusKind, Dice
 from doppelt.engine.game import legal_action_ids
 
-ENCODING_VERSION = 1
+ENCODING_VERSION = 2
 SCORE_SCALE = 200.0
+# Round-scaled area targets (3.6.3): yellow 21 = 3 crosses; blue 28 = slot 7.
+TARGET_YELLOW = 21
+TARGET_BLUE = 28
+# First / second pink slots whose min_value is 6 (score_sheet_v1.yaml).
+PINK_FIRST_SIX_SLOT = 6
+PINK_SECOND_SIX_SLOT = 11
+# Equal faces: earlier in DICE_ORDER ranks *lower* (white, yellow, blue, green, pink, silver).
+RANK_TIEBREAK = "DICE_ORDER"
 
 PHASE_ORDER: tuple[Phase, ...] = tuple(Phase)
 TRACK_ORDER: tuple[ActionTrack, ...] = tuple(ActionTrack)
@@ -53,12 +64,19 @@ SHEET_SIZE = (
 DICE_SIZE = DICE_COUNT * DICE_CHANNELS
 GLOBAL_SIZE = 7 + PHASE_COUNT + DICE_COUNT + 1 + DICE_COUNT
 PENDING_SIZE = 1 + BONUS_KIND_COUNT + (COLOR_COUNT + 1) + 4 + (COLOR_COUNT + 1)
-FEATURE_SIZE = SHEET_SIZE + DICE_SIZE + GLOBAL_SIZE + PENDING_SIZE
+# pick 1/2/3, per-die rank + empty-hand, live totals, fox floor, area targets, silver columns.
+PROGRESS_SIZE = 3 + DICE_COUNT * 2 + COLOR_COUNT + 2 + 2 + 5 + 12 + 1
+FEATURE_SIZE = SHEET_SIZE + DICE_SIZE + GLOBAL_SIZE + PENDING_SIZE + PROGRESS_SIZE
 
 SHEET_SLICE = slice(0, SHEET_SIZE)
 DICE_SLICE = slice(SHEET_SIZE, SHEET_SIZE + DICE_SIZE)
 GLOBAL_SLICE = slice(SHEET_SIZE + DICE_SIZE, SHEET_SIZE + DICE_SIZE + GLOBAL_SIZE)
-PENDING_SLICE = slice(SHEET_SIZE + DICE_SIZE + GLOBAL_SIZE, FEATURE_SIZE)
+PENDING_SLICE = slice(
+    SHEET_SIZE + DICE_SIZE + GLOBAL_SIZE,
+    SHEET_SIZE + DICE_SIZE + GLOBAL_SIZE + PENDING_SIZE,
+)
+PROGRESS_SLICE = slice(SHEET_SIZE + DICE_SIZE + GLOBAL_SIZE + PENDING_SIZE, FEATURE_SIZE)
+CONTEXT_SIZE = GLOBAL_SIZE + PENDING_SIZE + PROGRESS_SIZE
 
 
 @dataclass(frozen=True)
@@ -102,8 +120,9 @@ def encode_features(state: GameState) -> list[float]:
     feats.extend(_dice_features(state))
     feats.extend(_global_features(state))
     feats.extend(_pending_features(state))
+    feats.extend(_progress_features(state))
     if len(feats) != FEATURE_SIZE:
-        raise RuntimeError(f"encoding_v1 size drifted: got {len(feats)}, expected {FEATURE_SIZE}")
+        raise RuntimeError(f"encoding_v2 size drifted: got {len(feats)}, expected {FEATURE_SIZE}")
     return feats
 
 
@@ -213,3 +232,89 @@ def _pending_features(state: GameState) -> list[float]:
         feats.append(0.0)
         feats.extend(_one_hot(None, len(SCORING_COLORS) + 1))
     return feats
+
+
+def hand_ranks(state: GameState) -> dict[Dice, int]:
+    """Rank dice currently in hand, 1 = lowest face.
+
+    Ties break by ``DICE_ORDER`` (white, yellow, blue, green, pink, silver):
+    the earlier color is treated as lower.
+    """
+    in_hand = [die for die in DICE_ORDER if die in state.hand]
+    in_hand.sort(key=lambda die: (state.faces.get(die, 0), DICE_ORDER.index(die)))
+    return {die: index + 1 for index, die in enumerate(in_hand)}
+
+
+def would_empty_hand(state: GameState, die: Dice) -> bool:
+    """True if picking ``die`` now would leave the hand empty.
+
+    Matches the engine: lower-face leftovers go to the platter; pick 3 dumps
+    whatever remains.
+    """
+    if die not in state.hand:
+        return False
+    if len(state.hand) == 1:
+        return True
+    if state.picks_made >= 2:
+        return True
+    value = state.faces.get(die, 0)
+    return all(
+        state.faces.get(other, 0) < value for other in state.hand if other is not die
+    )
+
+
+def _progress_features(state: GameState) -> list[float]:
+    sheet = state.sheet
+    yellow = score_yellow(sheet)
+    blue = score_blue(sheet)
+    pink = score_pink(sheet)
+    green = score_green(sheet)
+    silver = score_silver(sheet)
+    color_scores = [yellow, blue, pink, green, silver]
+    any_zero = any(score == 0 for score in color_scores)
+    fox_floor = 0 if any_zero else min(color_scores)
+    rounds_left = max(0, 7 - state.round_index)
+
+    next_pick = _one_hot(None, 3)
+    if state.phase is Phase.ACTIVE_PICK and 0 <= state.picks_made <= 2:
+        next_pick = _one_hot(state.picks_made, 3)
+
+    ranks = hand_ranks(state)
+    die_feats: list[float] = []
+    for die in DICE_ORDER:
+        rank = ranks.get(die)
+        die_feats.append((rank or 0) / 6.0)
+        die_feats.append(1.0 if would_empty_hand(state, die) else 0.0)
+
+    next_pink = sheet.next_pink_slot()
+    pink_min = None
+    if next_pink is not None:
+        pink_min = get_score_sheet().pink.min_values[next_pink]
+    silver_fills = []
+    silver_done = []
+    for value in range(1, 7):
+        filled = sum(1 for row in SILVER_ROW_COLORS if value in sheet.silver[row])
+        silver_fills.append(filled / 4.0)
+        silver_done.append(1.0 if filled == 4 else 0.0)
+
+    return [
+        *next_pick,
+        *die_feats,
+        min(yellow / SCORE_SCALE, 1.0),
+        min(blue / SCORE_SCALE, 1.0),
+        min(pink / SCORE_SCALE, 1.0),
+        min(green / SCORE_SCALE, 1.0),
+        min(silver / SCORE_SCALE, 1.0),
+        min(fox_floor / SCORE_SCALE, 1.0),
+        1.0 if any_zero else 0.0,
+        min(max(0, TARGET_YELLOW - yellow) / TARGET_YELLOW, 1.0),
+        min(max(0, TARGET_BLUE - blue) / TARGET_BLUE, 1.0),
+        (next_pink if next_pink is not None else PINK_SLOTS) / PINK_SLOTS,
+        1.0 if pink_min == 5 else 0.0,
+        1.0 if pink_min == 6 else 0.0,
+        1.0 if sheet.pink[PINK_FIRST_SIX_SLOT] is not None else 0.0,
+        1.0 if sheet.pink[PINK_SECOND_SIX_SLOT] is not None else 0.0,
+        *silver_fills,
+        *silver_done,
+        rounds_left / 6.0,
+    ]

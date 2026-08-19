@@ -1,4 +1,6 @@
-"""encoding_v1: fixed features + catalog-aligned legal mask."""
+"""encoding_v2: fixed features + catalog-aligned legal mask."""
+
+import pytest
 
 from doppelt.actions.catalog_v1 import ACTION_SPACE_SIZE
 from doppelt.core.phases import Phase
@@ -30,13 +32,15 @@ def test_encoding_size_and_version():
         FEATURE_SIZE,
         GLOBAL_SIZE,
         PENDING_SIZE,
+        PROGRESS_SIZE,
         SHEET_SIZE,
     )
 
     state = new_game(seed=1)
     encoded = encode_state(state)
-    assert encoded.encoding_version == ENCODING_VERSION
-    assert SHEET_SIZE + DICE_SIZE + GLOBAL_SIZE + PENDING_SIZE == FEATURE_SIZE
+    assert encoded.encoding_version == 2
+    assert SHEET_SIZE + DICE_SIZE + GLOBAL_SIZE + PENDING_SIZE + PROGRESS_SIZE == FEATURE_SIZE
+    assert ENCODING_VERSION == 2
     assert len(encoded.features) == FEATURE_SIZE
     assert len(encoded.mask) == ACTION_SPACE_SIZE
     assert all(0.0 <= value <= 1.0 for value in encoded.features)
@@ -106,7 +110,64 @@ def test_split_by_seed_holds_out_mod_10():
     keep = BCExample(dummy, mask, 0, 0.2, seed=1)
     train, val = split_by_seed([holdout, keep], val_frac=0.1)
     assert val == [holdout]
-    assert train == [keep]
+def test_pick_index_rank_empty_hand_and_fox_floor():
+    from doppelt.core.types import Dice
+    from doppelt.ml.encoding import (
+        DICE_ORDER,
+        PROGRESS_SLICE,
+        TARGET_BLUE,
+        TARGET_YELLOW,
+        hand_ranks,
+        would_empty_hand,
+    )
+    from tests.conftest import roll_hand
+
+    state = new_game(seed=4)
+    roll_hand(state)
+    state.hand = [Dice.YELLOW, Dice.BLUE, Dice.PINK]
+    state.faces[Dice.YELLOW] = 2
+    state.faces[Dice.BLUE] = 4
+    state.faces[Dice.PINK] = 6
+    state.picks_made = 0
+    ranks = hand_ranks(state)
+    assert ranks[Dice.YELLOW] == 1
+    assert ranks[Dice.BLUE] == 2
+    assert ranks[Dice.PINK] == 3
+    assert would_empty_hand(state, Dice.YELLOW) is False
+    assert would_empty_hand(state, Dice.BLUE) is False
+    assert would_empty_hand(state, Dice.PINK) is True
+    state.picks_made = 2
+    assert would_empty_hand(state, Dice.YELLOW) is True
+
+    state.picks_made = 0
+    progress = encode_features(state)[PROGRESS_SLICE]
+    assert progress[0:3] == [1.0, 0.0, 0.0]
+    yellow_off = 3 + DICE_ORDER.index(Dice.YELLOW) * 2
+    assert progress[yellow_off] == pytest.approx(1 / 6)
+    assert progress[yellow_off + 1] == 0.0
+    pink_off = 3 + DICE_ORDER.index(Dice.PINK) * 2
+    assert progress[pink_off] == pytest.approx(3 / 6)
+    assert progress[pink_off + 1] == 1.0
+    assert progress[20] == 0.0  # fox floor
+    assert progress[21] == 1.0  # any color zero
+    assert progress[22] == 1.0  # remaining to yellow 21
+    assert progress[23] == 1.0  # remaining to blue 28
+    assert TARGET_YELLOW == 21
+    assert TARGET_BLUE == 28
+
+
+def test_silver_column_progress_and_pink_six():
+    from doppelt.core.silver import SILVER_ROW_COLORS
+    from doppelt.ml.encoding import PINK_FIRST_SIX_SLOT, PROGRESS_SLICE
+
+    state = new_game(seed=2)
+    for row in SILVER_ROW_COLORS:
+        state.sheet.silver[row].add(3)
+    state.sheet.pink[PINK_FIRST_SIX_SLOT] = 6
+    progress = encode_features(state)[PROGRESS_SLICE]
+    assert progress[27] == 1.0  # first pink-6 slot filled
+    assert progress[31] == 1.0  # silver column 3 fill 4/4
+    assert progress[37] == 1.0  # silver column 3 complete
 
 
 def test_encoded_state_rejects_wrong_sizes():

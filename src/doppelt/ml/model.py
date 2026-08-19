@@ -1,8 +1,8 @@
-"""Masked policy/value network (encoding_v1, catalog v1).
+"""Masked policy/value network (encoding_v2, catalog v1).
 
 Default architecture ``pvn_v1`` (Phase 3.3): sheet MLP + 1D CNN over dice +
 context MLP, fused into policy and value heads. The older flat ``mlp`` trunk is
-kept so existing BC checkpoints still load.
+kept so encoding-matched mlp checkpoints still load.
 """
 
 from __future__ import annotations
@@ -13,17 +13,15 @@ from typing import Any
 from doppelt.actions.catalog_v1 import ACTION_SPACE_SIZE, CATALOG_VERSION
 from doppelt.actions.space import ILLEGAL_LOGIT
 from doppelt.ml.encoding import (
+    CONTEXT_SIZE,
     DICE_CHANNELS,
     DICE_COUNT,
     ENCODING_VERSION,
     FEATURE_SIZE,
-    GLOBAL_SIZE,
-    PENDING_SIZE,
-    SHEET_SIZE,
-    DICE_SLICE,
     GLOBAL_SLICE,
-    PENDING_SLICE,
+    SHEET_SIZE,
     SHEET_SLICE,
+    DICE_SLICE,
 )
 
 DEFAULT_HIDDEN = 256
@@ -123,7 +121,7 @@ def _build_pvn_v1(torch, nn, hidden: int):
                 nn.ReLU(),
             )
             self.context_encoder = nn.Sequential(
-                nn.Linear(GLOBAL_SIZE + PENDING_SIZE, context_width),
+                nn.Linear(CONTEXT_SIZE, context_width),
                 nn.ReLU(),
             )
             fused = sheet_width + dice_width + context_width
@@ -141,7 +139,7 @@ def _build_pvn_v1(torch, nn, hidden: int):
             dice = features[:, DICE_SLICE].reshape(-1, DICE_COUNT, DICE_CHANNELS)
             dice = self.dice_conv(dice.transpose(1, 2)).flatten(1)
             dice = self.dice_proj(dice)
-            context = self.context_encoder(features[:, GLOBAL_SLICE.start : PENDING_SLICE.stop])
+            context = self.context_encoder(features[:, GLOBAL_SLICE.start :])
             hidden_out = self.trunk(torch.cat((sheet, dice, context), dim=-1))
             logits = self.policy_head(hidden_out).masked_fill(~mask, ILLEGAL_LOGIT)
             value = self.value_head(hidden_out).squeeze(-1)

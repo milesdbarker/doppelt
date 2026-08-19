@@ -152,6 +152,7 @@ def run_random(
     policy: str = "random",
     checkpoint: Path | None = None,
     mcts_sims: int = 0,
+    mcts_plies: int = 2,
     output: TextIO | None = None,
 ) -> int:
     """Play one solo game with a named bot (dice RNG stays on the engine)."""
@@ -163,7 +164,7 @@ def run_random(
         from doppelt.ml.policy import NeuralPolicy
 
         try:
-            bot = NeuralPolicy(checkpoint, seed=seed, mcts_sims=mcts_sims)
+            bot = NeuralPolicy(checkpoint, seed=seed, mcts_sims=mcts_sims, mcts_plies=mcts_plies)
         except (OSError, RuntimeError, ValueError) as error:
             print(f"Could not load checkpoint: {error}", file=out)
             return 1
@@ -358,34 +359,93 @@ def run_train_selfplay(
     return 0
 
 
+def run_train_expert(
+    *,
+    init_checkpoint: Path,
+    out_path: Path,
+    rounds: int,
+    games_per_round: int,
+    mcts_sims: int,
+    mcts_plies: int,
+    visit_sample: bool,
+    seed: int,
+    epochs: int,
+    batch_size: int,
+    lr: float,
+    val_frac: float,
+    eval_games: int,
+    eval_seed: int,
+    output: TextIO | None = None,
+) -> int:
+    """PUCT search as teacher; distill onto the net; keep best greedy eval."""
+    out = output or sys.stdout
+    from doppelt.ml.expert import format_expert_result, train_expert
+
+    try:
+        result = train_expert(
+            init_checkpoint=init_checkpoint,
+            out_path=out_path,
+            rounds=rounds,
+            games_per_round=games_per_round,
+            mcts_sims=mcts_sims,
+            mcts_plies=mcts_plies,
+            visit_sample=visit_sample,
+            seed=seed,
+            epochs=epochs,
+            batch_size=batch_size,
+            lr=lr,
+            val_frac=val_frac,
+            eval_games=eval_games,
+            eval_seed=eval_seed,
+            on_progress=lambda message: print(message, file=out, flush=True),
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"expert-iteration error: {error}", file=out)
+        return 1
+    print(format_expert_result(result), file=out)
+    return 0
+
+
 def run_eval(
     *,
     checkpoint: Path,
-    games: int,
-    seed: int,
+    suite: str | None,
+    games: int | None,
+    seed: int | None,
     baselines: str,
     sample: bool = False,
     mcts_sims: int = 0,
+    mcts_plies: int = 2,
+    json_path: Path | None = None,
+    collect_failures: bool = True,
     output: TextIO | None = None,
 ) -> int:
-    """Evaluate a checkpoint against baseline bots."""
+    """Evaluate a checkpoint against baseline bots on a frozen or custom suite."""
     out = output or sys.stdout
     names = [name.strip() for name in baselines.split(",") if name.strip()]
-    from doppelt.ml.eval import eval_checkpoint, format_eval_rows
+    from doppelt.ml.eval import eval_checkpoint, format_eval_report, write_eval_json
+    from doppelt.ml.eval_suite import resolve_eval_suite
 
     try:
-        rows = eval_checkpoint(
+        resolved = resolve_eval_suite(suite, games=games, seed=seed)
+        report = eval_checkpoint(
             checkpoint,
-            games=games,
-            seed_start=seed,
+            games=resolved.games,
+            seed_start=resolved.seed_start,
             baselines=names,
             sample=sample,
             mcts_sims=mcts_sims,
+            mcts_plies=mcts_plies,
+            suite=resolved,
+            collect_failures=collect_failures,
         )
     except (OSError, RuntimeError, ValueError) as error:
         print(f"eval error: {error}", file=out)
         return 1
-    print(format_eval_rows(rows), file=out)
+    print(format_eval_report(report), file=out)
+    if json_path is not None:
+        write_eval_json(report, json_path)
+        print(f"json: {json_path}", file=out)
     return 0
 
 

@@ -38,3 +38,41 @@ def test_puct_passthrough_single_legal():
     policy = NeuralPolicy(net=net, seed=1, mcts_sims=8)
     state = new_game(seed=1)
     assert policy.select(state, [130]) == 130
+
+
+def test_deeper_puct_visits_and_does_not_mutate():
+    from doppelt.ml.mcts import puct_search
+    from doppelt.ml.model import build_net
+    from doppelt.ml.policy import NeuralPolicy
+
+    state = new_game(seed=12)
+    state.sheet.circle_action(ActionTrack.REROLL)
+    roll_hand(state)
+    faces_before = dict(state.faces)
+    log_before = list(state.action_log)
+    awaiting = state.awaiting_roll
+    legal = legal_action_ids(state)
+    assert len(legal) > 1
+
+    net = build_net(hidden=32, architecture="mlp")
+    policy = NeuralPolicy(net=net, seed=3, mcts_sims=16, mcts_plies=2)
+    logits, _value = policy._forward(state, legal)
+    probs = torch.softmax(logits.cpu(), dim=-1).squeeze(0)
+    priors = {action_id: float(probs[action_id].item()) for action_id in legal}
+    result = puct_search(
+        state,
+        legal,
+        priors,
+        policy._leaf_value,
+        policy._search_rng,
+        n_sims=16,
+        max_plies=2,
+        infer=policy._infer,
+    )
+    assert result.action_id in legal
+    assert sum(result.visits) == 16
+    assert max(result.visits) >= 1
+    assert dict(state.faces) == faces_before
+    assert state.action_log == log_before
+    assert state.awaiting_roll is awaiting
+

@@ -274,6 +274,8 @@ def test_main_eval_help(capsys):
     text = capsys.readouterr().out
     assert "checkpoint" in text
     assert "--mcts-sims" in text
+    assert "--mcts-plies" in text
+    assert "--suite" in text
 
 
 def test_main_train_bc_help(capsys):
@@ -294,6 +296,18 @@ def test_main_train_selfplay_help(capsys):
     assert "--init" in text
     assert "--iters" in text
     assert "--kl" in text
+
+
+def test_main_train_expert_help(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["train", "expert", "--help"])
+    assert exc.value.code == 0
+    text = capsys.readouterr().out
+    assert "--init" in text
+    assert "--mcts-sims" in text
+    assert "--mcts-plies" in text
+    assert "--rounds" in text
+    assert "--visit-sample" in text
 
 
 def test_main_dataset_generate_help(capsys):

@@ -211,7 +211,13 @@ def train_selfplay(
         if not force and iteration % eval_every != 0 and iteration != iterations:
             return None
         policy = NeuralPolicy(net=net, payload=payload, seed=eval_seed, sample=False)
-        row = eval_policy_scores(policy, games=eval_games, seed_start=eval_seed, max_actions=max_actions)
+        row, _failures = eval_policy_scores(
+            policy,
+            games=eval_games,
+            seed_start=eval_seed,
+            max_actions=max_actions,
+            collect_failures=False,
+        )
         if row.mean_score >= best_eval:
             best_eval = row.mean_score
             save_checkpoint(

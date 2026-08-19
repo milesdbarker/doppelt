@@ -15,9 +15,11 @@ from doppelt.cli.commands import (
     run_replay,
     run_simulate,
     run_train_bc,
+    run_train_expert,
     run_train_selfplay,
     run_visualize,
 )
+from doppelt.ml.eval_suite import DEFAULT_EVAL_SUITE, SUITE_NAMES
 from doppelt.sim.dataset import DATASET_POLICIES, DEFAULT_MIX, DEFAULT_SHARD_SIZE
 from doppelt.sim.policy import CLI_POLICY_CHOICES, POLICY_NAMES
 
@@ -72,6 +74,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=0,
         help="PUCT simulations per neural decision (0 = greedy, no search)",
+    )
+    random_cmd.add_argument(
+        "--mcts-plies",
+        type=int,
+        default=2,
+        help="PUCT decision plies when --mcts-sims > 0 (1 = root + chance leaf; 2 = + one reply)",
     )
 
     replay = subparsers.add_parser("replay", help="replay a binary action log")
@@ -291,8 +299,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.0,
         help="KL penalty toward --init (default: 0)",
     )
-    train_sp.add_argument("--eval-games", type=int, default=16, help="greedy eval games")
-    train_sp.add_argument("--eval-seed", type=int, default=20_000, help="greedy eval seed start")
+    train_sp.add_argument(
+        "--eval-games",
+        type=int,
+        default=16,
+        help="greedy eval games on the dev seed range (not the frozen report suite)",
+    )
+    train_sp.add_argument(
+        "--eval-seed",
+        type=int,
+        default=20_000,
+        help="dev eval seed start (suite 'dev' is 20000; do not use report seeds here)",
+    )
     train_sp.add_argument("--eval-every", type=int, default=5, help="eval every N iters")
     train_sp.add_argument("--hidden", type=int, default=256, help="used only if --init is omitted")
     train_sp.add_argument(
@@ -303,13 +321,93 @@ def build_parser() -> argparse.ArgumentParser:
         help="used only if --init is omitted",
     )
 
+    train_ex = train_sub.add_parser(
+        "expert",
+        help="expert iteration: PUCT search games as teacher, distill onto the net (3.6.1)",
+    )
+    train_ex.add_argument(
+        "--init",
+        type=Path,
+        required=True,
+        help="starting checkpoint (required; search labels come from this net)",
+    )
+    train_ex.add_argument(
+        "--out",
+        type=Path,
+        default=Path("data/models/expert_v1.pt"),
+        help="best greedy checkpoint (default: data/models/expert_v1.pt)",
+    )
+    train_ex.add_argument("--rounds", type=int, default=3, help="generate+distill cycles (default: 3)")
+    train_ex.add_argument(
+        "--games",
+        type=int,
+        default=32,
+        help="search games per round (default: 32)",
+    )
+    train_ex.add_argument(
+        "--mcts-sims",
+        type=int,
+        default=32,
+        help="PUCT simulations per decision when labeling (default: 32)",
+    )
+    train_ex.add_argument(
+        "--mcts-plies",
+        type=int,
+        default=2,
+        help="PUCT decision plies for search labels (default: 2 = root + one reply)",
+    )
+    train_ex.add_argument(
+        "--visit-sample",
+        action="store_true",
+        help="sample from visit counts instead of visit-greedy labels",
+    )
+    train_ex.add_argument("--seed", type=int, default=0, help="first search-game seed")
+    train_ex.add_argument("--epochs", type=int, default=4, help="BC epochs per round (default: 4)")
+    train_ex.add_argument("--batch-size", type=int, default=64, help="minibatch size")
+    train_ex.add_argument("--lr", type=float, default=1e-3, help="Adam learning rate for distill")
+    train_ex.add_argument(
+        "--val-frac",
+        type=float,
+        default=0.1,
+        help="fraction of seeds held out by seed %% 10 (default: 0.1)",
+    )
+    train_ex.add_argument(
+        "--eval-games",
+        type=int,
+        default=16,
+        help="greedy eval games on the dev seed range (not the frozen report suite)",
+    )
+    train_ex.add_argument(
+        "--eval-seed",
+        type=int,
+        default=20_000,
+        help="dev eval seed start (do not use report/holdout)",
+    )
+
     evaluate = subparsers.add_parser(
         "eval",
-        help="score a neural checkpoint vs baseline bots on a fixed seed range",
+        help="score a neural checkpoint on a frozen seed suite (report = 300-claim)",
     )
     evaluate.add_argument("checkpoint", type=Path, help="path to .pt checkpoint")
-    evaluate.add_argument("--games", type=int, default=64, help="games per agent (default: 64)")
-    evaluate.add_argument("--seed", type=int, default=10_000, help="first eval seed (default: 10000)")
+    evaluate.add_argument(
+        "--suite",
+        choices=[*SUITE_NAMES, "custom"],
+        default=DEFAULT_EVAL_SUITE,
+        help="frozen suite: report/holdout are not for retune; custom needs --games and --seed "
+        f"(default: {DEFAULT_EVAL_SUITE})",
+    )
+    evaluate.add_argument(
+        "--games",
+        type=int,
+        default=None,
+        help="override suite length (marks the run as truncated / not a 300 claim)",
+    )
+    evaluate.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="only for --suite custom (first seed); named suites ignore this",
+    )
     evaluate.add_argument(
         "--baselines",
         default="random_legal",
@@ -325,6 +423,24 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=0,
         help="PUCT simulations per neural decision (0 = greedy, no search)",
+    )
+    evaluate.add_argument(
+        "--mcts-plies",
+        type=int,
+        default=2,
+        help="PUCT decision plies when --mcts-sims > 0 (default: 2)",
+    )
+    evaluate.add_argument(
+        "--json",
+        dest="json_path",
+        type=Path,
+        default=None,
+        help="optional JSON report path",
+    )
+    evaluate.add_argument(
+        "--no-failures",
+        action="store_true",
+        help="skip failure-mining flags (zero-color, pink-6, plus-one, foxes)",
     )
 
     return parser
@@ -344,6 +460,7 @@ def main(argv: list[str] | None = None) -> int:
             policy=args.policy,
             checkpoint=args.checkpoint,
             mcts_sims=args.mcts_sims,
+            mcts_plies=args.mcts_plies,
         )
     if args.command == "replay":
         return run_replay(args.log, verbose=args.verbose)
@@ -412,15 +529,36 @@ def main(argv: list[str] | None = None) -> int:
                 hidden=args.hidden,
                 architecture=args.architecture,
             )
+        if args.train_command == "expert":
+            return run_train_expert(
+                init_checkpoint=args.init,
+                out_path=args.out,
+                rounds=args.rounds,
+                games_per_round=args.games,
+                mcts_sims=args.mcts_sims,
+                mcts_plies=args.mcts_plies,
+                visit_sample=args.visit_sample,
+                seed=args.seed,
+                epochs=args.epochs,
+                batch_size=args.batch_size,
+                lr=args.lr,
+                val_frac=args.val_frac,
+                eval_games=args.eval_games,
+                eval_seed=args.eval_seed,
+            )
         parser.error(f"unknown train command {args.train_command!r}")
     if args.command == "eval":
         return run_eval(
             checkpoint=args.checkpoint,
+            suite=args.suite,
             games=args.games,
             seed=args.seed,
             baselines=args.baselines,
             sample=args.sample,
             mcts_sims=args.mcts_sims,
+            mcts_plies=args.mcts_plies,
+            json_path=args.json_path,
+            collect_failures=not args.no_failures,
         )
 
     parser.error(f"unknown command {args.command!r}")

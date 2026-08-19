@@ -58,7 +58,8 @@
 
 - [ ] Any finished game can be replayed from seed + action log and produce identical final state and score.
 - [ ] Engine runs ≥ 10k solo games/sec on your machine (order-of-magnitude target; tune after baseline).
-- [ ] Trained agent beats random play consistently and approaches human-reasonable solo scores.
+- [x] Trained agent beats random and heuristic (greedy neural ~268 mean, 2026-08-18).
+- [ ] Solo greedy mean **300** on a frozen eval suite ([§3.6](#36-algorithm-improvements-268--300)).
 - [ ] Clear metrics dashboard: average score, score distribution, training curves.
 
 ---
@@ -445,9 +446,9 @@ Encode `GameState` as fixed-size tensors (for solo first):
 - **Global:** round, phase, unlocked actions, pending queue summary.
 - **Mask:** legal action bitmap (same size as action space).
 
-Keep encoding versioned (`encoding_v1`) so you can change without breaking old models.
+Keep encoding versioned (`encoding_v2`) so you can change without breaking old models.
 
-**Shipped:** `doppelt.ml.encoding` (`ENCODING_VERSION = 1`) plus a catalog-sized legal mask. Default net is `pvn_v1` (see 3.3). Train with `doppelt train bc`; play with `--policy neural --checkpoint`.
+**Shipped:** `doppelt.ml.encoding` (`ENCODING_VERSION = 2`) plus a catalog-sized legal mask. Default net is `pvn_v1` (see 3.3). Train with `doppelt train bc`; play with `--policy neural --checkpoint`. encoding_v1 checkpoints will not load.
 
 ### 3.2 Action space
 
@@ -496,15 +497,66 @@ For solo roll-and-write, **final score RL** is natural; consider auxiliary rewar
 
 
 
+### 3.6 Algorithm improvements (268 → 300)
+
+**Status (2026-08-18):** Greedy neural policy **~268** mean, heuristic far behind (~100 pts). Target **300** mean on a fixed eval seed set (same seeds, ≥256 games; 1k later). Dice variance means 300 is an **expected-score** goal, not a score every game.
+
+Heuristic BC is **low leverage** now (weaker teacher). Do not clone heuristic shards as the main path. Overnight A2C from the current net still helps a bit, then plateaus. Items below are **highest leverage first**. Each should be judged by greedy mean on the **same** `--seed` suite before stacking the next.
+
+| # | Change | Why it moves 268→300 | Cost | Status |
+|---|--------|----------------------|------|--------|
+| **3.6.1** | **Expert iteration (search as teacher)** — play/train with PUCT (`--mcts-sims`), store visit-greedy (or visit-sampled) actions, BC or distill onto the net, repeat | Net is already stronger than heuristic; the remaining teacher is **itself + search**. This is the AlphaZero loop. Play-time search alone does not update weights. | High (slow games if used in the inner loop). Start: generate a few k search games, BC, eval. Do **not** put MCTS inside every A2C iter until rollouts are batched. | ✅ `doppelt train expert --init … --mcts-sims 32` (greedy eval on `dev`; A2C still has no MCTS) |
+| **3.6.2** | **Deeper PUCT + chance nodes** — current search is root-only: one action, forced uniques, value leaf. Add a real tree, sample `roll_hand` as chance, maybe 1–2 ply of replies | 268-level blunders are often “this pick vs the *distribution* of remaining dice,” not one-step value error. | Medium–high. Keep `--mcts-sims` for eval; cap depth. | ✅ tree PUCT, `roll_hand` as chance (not a forced unique), `--mcts-plies` default 2 (root + one reply). Expert labels and `--mcts-sims` eval share it. A2C still has no MCTS. |
+| **3.6.3** | **`encoding_v2` (features, not new action IDs)** — explicit pick 1/2/3; die rank low→high (tie-break documented); “would this empty the hand”; live color totals / fox floor; remaining round-scaled targets (yellow 21, blue 28, pink 5–6, silver columns) | Policy still has to *infer* pick index and rank from a flat vector. Extra catalog IDs for rank×pick are the wrong tool (sparse, v2 logs). | Low–medium. Retrain or fine-tune; bump `ENCODING_VERSION`. | ✅ `ENCODING_VERSION = 2`; progress block after pending. Old v1 `.pt` files will not load. |
+| **3.6.4** | **Better return estimator (TD / GAE); treat PPO as optional** — bootstrap value between picks (`TD(λ)` as in TD-Gammon) or GAE. **Do not assume PPO beats A2C**: Yahtzee (Papé 2025, arXiv:2601.00007) found A2C more robust than PPO on a stochastic scorecard under a fixed budget. Keep A2C; add bootstrapping first. | Sparse 6-round MC return is noisy. Tesauro’s breakthrough was *per-turn* TD, not waiting for the game to end. | Medium. Same collector, different backup. | ⬜ |
+| **3.6.5** | **Auxiliary value heads** — predict per-color totals + foxes + “any color is 0”; main head stays grand total | Foxes = count × min(colors) (0 if any color is 0). A scalar value often misses “don’t leave pink at 0.” | Low–medium. Extra losses, same encoder. | ⬜ |
+| **3.6.6** | **Self-distill high-score games** — from the current net, keep top percentile of greedy (or search) games, BC on those actions only | Stronger than heuristic BC; cheap compared to search-in-the-loop. Filter unfinished games if analytics still flags them. | Low (replay logs you already know how to write). | ⬜ |
+| **3.6.7** | **Batched GPU / faster leaves** — vectorize encode + forward; later numba/Rust on `legal_action_ids` | Unlocks 3.6.1–2 at overnight scale. Does not raise the ceiling by itself. | Medium. Profile first (encode vs engine vs torch). | ⬜ |
+| **3.6.8** | **KL / entropy schedule** — decay `--kl` and entropy as eval rises; freeze a *BC-or-best* anchor separately from stage init | Constant `kl=0.01` toward last stage can freeze a 268 local max **or** slowly forget tactics. Schedule + keep `stage_*.pt`. | Low (script/CLI). | ⬜ |
+| **3.6.9** | **Light shaping, eval unshaped** — small penalties for a 0-color at end, emptying hand on pick 1–2 without unlock plan; optional fox-coverage bonus. **Report only raw `total_score`** | Speeds learning the fox/zero-color cliff that caps many 250s. Overweighting distorts 300. | Low. Easy to get wrong — A/B on the eval suite. | ⬜ |
+| **3.6.10** | **Per-area encoders / attention** — replace flat sheet MLP with yellow/blue/green/pink/silver towers (or a small transformer over slots) | 300 play is “which *region* is the bottleneck this round.” `pvn_v1` is a start; capacity may underfit sheet structure. | Medium. New `--arch`, new BC or fine-tune. | ⬜ |
+| **3.6.11** | **Checkpoint league** — mix rollouts vs frozen older nets (and vs greedy-self) so the policy does not overfit one value function | Overnight stages can overfit eval seed 20000. League = more diverse states. | Medium. | ⬜ |
+| **3.6.12** | **Root expectimax on active picks** — exact one-ply over legal picks, chance over remaining faces / platter, net value at leaves | Lower variance than PUCT for the 3-pick decision; expensive branching. Use only at play/eval or for labels. | High at large width. | ⬜ |
+| **3.6.13** | **Phase-specific heads** — separate logits for pick vs mark vs bonus (still global catalog IDs + mask) | Less wasted capacity on never-legal IDs in that phase. | Low–medium. | ⬜ |
+| **3.6.14** | **Human / target games** — log your own 280–300 solos; BC a small mix so the net sees “300-shaped” sheets | Tiny dataset, high unique tactics (pink 5–6, late fox). Easy to overfit — mix with self-play, never replace eval seeds. | Low. | ⬜ |
+| **3.6.15** | **Failure mining** — `dataset analyze`-style stats on neural logs: zero-color rate, silver-first, skipped pink-6, unused plus-one, fox=0 with 4 colors alive | Tells you whether 268 is **tactics** (encoding/search) or **one systematic bug**. | Low. Build on existing analytics. | ✅ `doppelt eval` (default) + `sim.failures`; analyze also reports %≥300 and fox=0/4+ colors |
+| **3.6.16** | **Eval discipline for 300** — freeze 256–1000 seeds; report mean, median, p10, %≥300; never retune on that set; use a second holdout | Otherwise “300” is noise or leakage. | Low. Do this **before** claiming a new SOTA. | ✅ suites `report` / `holdout` / `report_1k` / `dev`; `doppelt eval --suite report` |
+| **3.6.17** | **Ensemble at eval** — average 2–3 snapshots’ logits (or vote after short PUCT) | Cheap 2–5 pts sometimes; not a training story. | Low at eval time. | ⬜ |
+| **3.6.18** | **Do not** explode the catalog (pick × rank × pick-index IDs); **do not** BC the 1M mixed random/greedy set; **do not** 15k A2C iters as the main 300 plan | Those spend compute without new information. | — | — |
+
+#### From related work (methods we were not using)
+
+Closest published cousins: **solitaire Yahtzee** (optimal DP ~254.6 expected; A2C nets ~242), **Qwixx** (exact/approx chance EV), **TD-Gammon** (dice + neural value + 1-ply afterstates), **Stochastic/Gumbel MuZero** (chance nodes; search with few sims), **2048** (stochastic puzzle, learned chance). No serious public *Doppelt so clever* / *Ganz schön clever* research agent turned up — the official apps are not this.
+
+| # | Change | Source / why it is new for us | Cost | Status |
+|---|--------|-------------------------------|------|--------|
+| **3.6.19** | **Afterstate (post-decision) value + 1-ply greedy** — for each legal pick, `apply` in a trial, score `V(afterstate)`; play argmax. Train `V` on afterstates, not only pre-decision states | **TD-Gammon**: Tesauro did not learn Q(s,a); he evaluated the *board after the move* and 1-ply searched. Our PUCT still evaluates mixed pre/post states and samples. Afterstates make pick-1 vs pick-2 comparable given the *current* faces (chance is the *next* roll). | Low–medium. Engine already has `copy_for_trial`. | ⬜ |
+| **3.6.20** | **Gumbel / Sequential Halving at the root** — replace PUCT when `--mcts-sims` is 8–64 | **Gumbel MuZero** (Danihelka et al., ICLR 2022): PUCT is a poor simple-regret algorithm at *low* sim counts. We cannot afford 800 sims/move; Gumbel is built for that budget. | Medium. Swap root selection; keep the engine. | ⬜ |
+| **3.6.21** | **Train on the search *policy*, not only the argmax** — KL/CE to visit counts (or completed Q); temperature then greedy later in the game | **AlphaZero / OpenSpiel**: labels are the full π_search. We planned “expert iteration” as cloning the chosen move only. Distilling the distribution teaches “yellow and white were both fine.” | Medium. Needs 3.6.1 logging of visits. | ⬜ |
+| **3.6.22** | **Enumerate small chance, sample large chance** — remaining hand size 1–3: exact 6^k (or 6^k / symmetries) expected value; only Monte-Carlo the 4–6 die rolls | **Qwixx solvers**: 1000 sampled rolls ≈ exact EV; 10 samples are *biased high* in the planner and worse in real play. Our MCTS currently samples chance like “N = sims,” which is the 10-sample regime. | Medium. Tables or on-the-fly product of d6. | ⬜ |
+| **3.6.23** | **Round-6 / plus-one endgame DP** — exact (or depth-complete) backup when few marks remain; net only for earlier rounds | **Yahtzee / Qwixx**: optimal play is computed *backwards from the terminal sheet*. Full Doppelt is too big, but **last active + passive + plus-one** may be enumerable with the real engine. Use as labels or as the leaf instead of `V`. | High to engineer; huge if it fits in RAM. Probe state-space first. | ⬜ |
+| **3.6.24** | **Distributional / quantile value** — predict a histogram (or quantiles) of final score, not one mean | Dice: two picks can share E[score] but differ in P(≥300) and P(fox=0). **C51 / QR-DQN**. Optional train on P(≥300) or CVaR if the *goal* is the 300 line, not the mean. | Medium. Extra head; eval still reports mean. | ⬜ |
+| **3.6.25** | **Hierarchical option: choose a color (or “fox insurance”) then a die** — two-level policy; low-level still catalog IDs | **Yahtzee “Dynamic Intuition” / hierarchical RL**: first commit to a *category*, then tactical keep/roll. Matches “which area is the bottleneck.” | Medium. Risk of bad options; mask options that have no legal mark. | ⬜ |
+| **3.6.26** | **Curriculum from the end** — train only on round 5–6 (or plus-one) with random/net prefixes, then unlock earlier rounds | Same Yahtzee work: long-horizon *upper bonus* never learned well from full games. Fox × min(color) is our upper-bonus analogue. | Low–medium. Need a “start at round k” engine hook. | ⬜ |
+| **3.6.27** | **Reanalyse** — replay stored games with the *current* net (and cheap 1-ply/Gumbel) to refresh value/policy targets without new dice | **MuZero Reanalyse**: env steps are our bottleneck; we already have action logs. | Medium. Replay is CPU; no new overnight games required. | ⬜ |
+| **3.6.28** | **Hand-crafted *progress* features** (Tesauro: raw board → intermediate; features → master) — e.g. expected points if this color is abandoned, “fox dead” bit, silver-column-at-3, pink slot threshold remaining | Encoding_v2 occupancy is still “raw sheet.” TD-Gammon’s jump was *domain features*, not a bigger MLP. | Low. Overlaps 3.6.3; this is the *heuristic-shaped* slice. | ⬜ |
+
+**Suggested attack order:** 3.6.16 (measure) → 3.6.15 (why 268) → **3.6.19 (afterstate 1-ply)** → 3.6.3/28 (features) → 3.6.6 (self-distill) → **3.6.4 TD/GAE, keep A2C** → **3.6.20 Gumbel** → 3.6.22 exact small chance → 3.6.1+21 search teacher → 3.6.23 endgame if feasible. Overnight A2C can run in parallel but is not the 300 path by itself.
+
+**Play-time vs train:** `--mcts-sims` already helps a *played* game without touching weights. Hitting **300 greedy mean** almost certainly needs **3.6.1 / 3.6.21** (weights trained on search), not only more sims at eval.
+
+
+
 ### Phase 3 milestones
 
 
 | Milestone | Definition of done                                          |
 | --------- | ----------------------------------------------------------- |
-| **M3.1**  | State/action encoding implemented and tested ✅ (`encoding_v1`) |
+| **M3.1**  | State/action encoding implemented and tested ✅ (`encoding_v2`) |
 | **M3.2**  | BC model beats RandomLegal by wide margin ✅            |
-| **M3.3**  | RL/self-play improves over BC on eval suite                 |
+| **M3.3**  | RL/self-play improves over BC on eval suite ✅ (greedy net ~268 vs heuristic, 2026-08-18) |
 | **M3.4**  | 10k eval games: report mean/median score + comparison table |
+| **M3.5**  | Mean **300** on a frozen ≥256-seed greedy suite (see [3.6](#36-algorithm-improvements-268--300)) |
 
 
 **Estimated effort:** 3–6 weeks (tuning-heavy).
@@ -519,8 +571,8 @@ For solo roll-and-write, **final score RL** is natural; consider auxiliary rewar
 
 ### 4.1 Evaluation suite
 
-- [ ] **Fixed seed suite** — 1000 seeds, same for all agents.
-- [ ] **Score stats** — mean, median, std, percentiles, histogram.
+- [x] **Fixed seed suite** — `report` (256 from 1_000_000), `holdout` (256 from 2_000_000), `report_1k` (1000 from 1_000_000). Self-play uses `dev` (20_000).
+- [x] **Score stats** — mean, median, std, p10, %≥300 on `doppelt eval` (histogram still on `dataset analyze`).
 - [ ] **Head-to-head** — if multi-player engine exists.
 - [ ] **Human comparison** — your own solo scores on same seeds (optional).
 
@@ -716,10 +768,11 @@ Use this as a living progress tracker. See [Rule Parity Checklist (solo)](#rule-
 
 ### Phase 3
 
-- [x] Encoding + model (`encoding_v1`, `pvn_v1` policy/value, legal mask)
+- [x] Encoding + model (`encoding_v2`, `pvn_v1` policy/value, legal mask)
 - [x] BC training works (beats RandomLegal)
-- [x] Self-play / RL loop (`doppelt train selfplay`); score vs BC still to confirm on eval suite
+- [x] Self-play / RL loop (`doppelt train selfplay`); greedy net ~268 vs heuristic (2026-08-18)
 - [x] Checkpoints + eval suite (`doppelt eval`, `doppelt random --policy neural`)
+- [ ] Algorithm improvements toward mean 300 ([§3.6](#36-algorithm-improvements-268--300))
 
 
 
@@ -776,9 +829,9 @@ Use this as a living progress tracker. See [Rule Parity Checklist (solo)](#rule-
 
 ## Suggested work order (next 3 sessions)
 
-1. **Session 1:** `doppelt eval CHECKPOINT --games 16 --mcts-sims 32` vs greedy (no `--mcts-sims`) on the same seeds.
-2. **Session 2:** If search helps, keep training as greedy A2C; use MCTS only for play/eval.
-3. **Session 3:** Only then consider search-generated labels for a new BC round (slow).
+1. **Session 1:** Run `doppelt train expert --init CHECKPOINT --rounds 3 --games 32 --mcts-sims 32` (dev eval only). Then `doppelt eval … --suite report` once, not during tuning.
+2. **Session 2:** If greedy mean moved, inspect failure lines (not silver-first). If stuck, go to afterstate 1-ply ([3.6.19](#36-algorithm-improvements-268--300)).
+3. **Session 3:** Afterstate 1-ply greedy ([3.6.19](#36-algorithm-improvements-268--300)) — TD-Gammon style, no catalog change.
 
 ---
 
@@ -792,4 +845,4 @@ Use this as a living progress tracker. See [Rule Parity Checklist (solo)](#rule-
 
 ---
 
-*Last updated: 2026-08-15 — Phase 3 self-play actor-critic (`doppelt train selfplay`).*
+*Last updated: 2026-08-18 — encoding_v2 (3.6.3); v1 checkpoints will not load.*

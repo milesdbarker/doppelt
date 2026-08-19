@@ -27,6 +27,8 @@ class NeuralPolicy:
         *,
         sample: bool = False,
         mcts_sims: int = 0,
+        mcts_plies: int = 2,
+        visit_sample: bool = False,
         device: str = "cpu",
         net: Any = None,
         payload: dict[str, Any] | None = None,
@@ -36,6 +38,8 @@ class NeuralPolicy:
         self._rng_seed = seed
         self.sample = sample
         self.mcts_sims = mcts_sims
+        self.mcts_plies = mcts_plies
+        self.visit_sample = visit_sample
         self.device = device
         if net is None:
             if checkpoint is None:
@@ -67,6 +71,13 @@ class NeuralPolicy:
         _logits, value = self._forward(state, legal)
         return value
 
+    def _infer(self, state: GameState, legal: list[int]):
+        logits, value = self._forward(state, legal)
+        torch = self._torch
+        probs = torch.softmax(logits.cpu(), dim=-1).squeeze(0)
+        priors = {action_id: float(probs[action_id].item()) for action_id in legal}
+        return priors, value
+
     def select(self, state: GameState, legal: list[int]) -> int:
         if not legal:
             raise ValueError("NeuralPolicy received no legal actions")
@@ -86,6 +97,10 @@ class NeuralPolicy:
                 self._leaf_value,
                 self._search_rng,
                 n_sims=self.mcts_sims,
+                sample=self.visit_sample,
+                max_plies=self.mcts_plies,
+                infer=self._infer,
+                score_scale=self.score_scale,
             )
         if self.sample:
             probs = torch.softmax(logits.cpu(), dim=-1)

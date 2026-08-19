@@ -61,7 +61,9 @@ def test_analyze_records_percentiles_and_silver_flag():
     assert heuristic.silver_highest_color_rate == 1.0
     assert heuristic.zero_color_rate == 0.5
     assert heuristic.fox_nonzero_rate == 0.5
-    assert any("silver-first" in note for note in heuristic.notes)
+    assert heuristic.fox_zero_four_colors_alive_rate == 0.5
+    assert heuristic.share_ge_goal == 0.0
+    assert not any("silver-first" in note for note in heuristic.notes)
     random = reports["random_legal"]
     assert random.silver_pick_rate == 0.0
     assert random.pick_share["yellow"] == 1.0

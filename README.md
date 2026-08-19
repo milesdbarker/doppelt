@@ -44,11 +44,14 @@ doppelt dataset analyze                      # baseline report from solo_v1 shar
 doppelt dataset analyze --json data/datasets/solo_v1/analytics.json
 doppelt train bc --live-games 200 --out data/models/bc_v1.pt
 doppelt train bc --in data/datasets/solo_v1 --policy heuristic --max-games 10000 --arch pvn_v1
-doppelt train selfplay --init data/models/bc_v1.pt --iters 50 --games 32 --out data/models/selfplay_v1.pt
-doppelt eval data/models/selfplay_v1.pt --games 64 --baselines random_legal,heuristic
-doppelt eval data/models/selfplay_v1.pt --games 16 --mcts-sims 32
+doppelt train expert --init data/models/selfplay_v1.pt --out data/models/expert_v1.pt --rounds 3 --games 32 --mcts-sims 32
+doppelt eval data/models/selfplay_v1.pt --suite report --baselines heuristic
+doppelt eval data/models/selfplay_v1.pt --suite holdout
+doppelt eval data/models/selfplay_v1.pt --suite custom --games 64 --seed 10000
+doppelt eval data/models/selfplay_v1.pt --suite report --json data/eval/report.json
+doppelt eval data/models/selfplay_v1.pt --games 16 --mcts-sims 32 --suite custom --seed 10000
 doppelt random --policy neural --checkpoint data/models/selfplay_v1.pt --mcts-sims 32
-python scripts/overnight_selfplay.py --init data/models/bc_v1.pt --out-dir data/models/overnight
+python scripts/overnight_expert.py --init data/models/selfplay_v1.pt
 doppelt random --policy neural --checkpoint data/models/bc_v1.pt --seed 42
 doppelt replay game.bin   # replay a binary log and print scores
 doppelt decode game.bin   # print log header and action ids

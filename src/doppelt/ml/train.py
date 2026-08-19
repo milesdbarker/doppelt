@@ -60,14 +60,27 @@ def train_bc(
     lr: float = 1e-3,
     value_weight: float = 0.5,
     seed: int = 0,
+    init_checkpoint: Path | None = None,
 ) -> TrainResult:
-    """Train a masked policy/value net to clone labeled actions."""
+    """Train a masked policy/value net to clone labeled actions.
+
+    ``init_checkpoint`` fine-tunes an existing net (required for expert iteration).
+    """
     if not train_examples:
         raise ValueError("no training examples")
     torch, _nn, F = require_torch()
     torch.manual_seed(seed)
 
-    net = build_net(hidden=hidden, architecture=architecture)
+    extra_base: dict = {}
+    if init_checkpoint is not None:
+        from doppelt.ml.model import load_checkpoint
+
+        net, payload = load_checkpoint(init_checkpoint)
+        hidden = int(payload.get("hidden", hidden))
+        architecture = getattr(net, "architecture", architecture)
+        extra_base = {key: payload[key] for key in ("score_scale",) if key in payload}
+    else:
+        net = build_net(hidden=hidden, architecture=architecture)
     optimizer = torch.optim.Adam(net.parameters(), lr=lr)
     train_tensors = _to_tensors(train_examples, torch)
     train_ds = torch.utils.data.TensorDataset(*train_tensors)
@@ -95,7 +108,12 @@ def train_bc(
                 net,
                 hidden=hidden,
                 architecture=architecture,
-                extra={"epoch": epoch + 1, "train_loss": last_train, "val_loss": last_train},
+                extra={
+                    **extra_base,
+                    "epoch": epoch + 1,
+                    "train_loss": last_train,
+                    "val_loss": last_train,
+                },
             )
             continue
         val_loss = _epoch_loss(net, val_loader, torch, F, optimizer=None, value_weight=value_weight)
@@ -106,7 +124,12 @@ def train_bc(
                 net,
                 hidden=hidden,
                 architecture=architecture,
-                extra={"epoch": epoch + 1, "train_loss": last_train, "val_loss": val_loss},
+                extra={
+                    **extra_base,
+                    "epoch": epoch + 1,
+                    "train_loss": last_train,
+                    "val_loss": val_loss,
+                },
             )
 
     if best_val == float("inf"):
@@ -115,7 +138,7 @@ def train_bc(
             net,
             hidden=hidden,
             architecture=architecture,
-            extra={"epoch": epochs, "train_loss": last_train},
+            extra={**extra_base, "epoch": epochs, "train_loss": last_train},
         )
         best_val = last_train
 

@@ -97,6 +97,51 @@ def examples_from_live_games(
     return examples
 
 
+def examples_from_neural_games(
+    n_games: int,
+    *,
+    checkpoint: Path | None = None,
+    net=None,
+    payload: dict | None = None,
+    seed_start: int = 0,
+    mcts_sims: int = 32,
+    mcts_plies: int = 2,
+    visit_sample: bool = False,
+    max_actions: int = 5_000,
+) -> list[BCExample]:
+    """Play neural (+ optional PUCT) games and clone the actions search actually took."""
+    from doppelt.ml.policy import NeuralPolicy
+
+    teacher = NeuralPolicy(
+        checkpoint,
+        seed=seed_start,
+        net=net,
+        payload=payload,
+        mcts_sims=mcts_sims,
+        mcts_plies=mcts_plies,
+        visit_sample=visit_sample,
+    )
+    examples: list[BCExample] = []
+    for index in range(n_games):
+        seed = seed_start + index
+        teacher._search_rng.seed(seed ^ 0x4C75)
+        teacher._generator.manual_seed(seed)
+        state = play_game_with_policy(seed, teacher, max_actions=max_actions)
+        record = DatasetRecord(
+            seed=seed,
+            policy=teacher.name,
+            terminal=state.phase is Phase.GAME_OVER,
+            player_count=1,
+            total_score=total_score(state.sheet),
+            scores={},
+            actions=tuple(state.action_log),
+        )
+        if not record.terminal:
+            continue
+        examples.extend(examples_from_record(record))
+    return examples
+
+
 def split_by_seed(
     examples: Sequence[BCExample],
     *,

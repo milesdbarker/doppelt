@@ -27,6 +27,7 @@ from doppelt.actions.catalog_v1 import (
 from doppelt.core.types import ALL_DICE, Dice, SCORING_COLORS
 from doppelt.sim.batch import AREA_SCORE_KEYS
 from doppelt.sim.dataset import DatasetError, DatasetRecord, iter_dataset_records
+from doppelt.sim.failures import SCORE_GOAL
 
 SILVER_PICK_ID = pick_die_id(Dice.SILVER)
 DIE_BY_PICK_ID = {pick_die_id(die): die.value for die in ALL_DICE}
@@ -83,6 +84,8 @@ class PolicyAnalytics:
     fox_score_share: float
     silver_highest_color_rate: float
     zero_color_rate: float
+    fox_zero_four_colors_alive_rate: float
+    share_ge_goal: float
     total_histogram: list[HistogramBin]
     area_histograms: dict[str, list[HistogramBin]]
     notes: list[str] = field(default_factory=list)
@@ -240,10 +243,6 @@ def _scan_actions(actions: Sequence[int]) -> dict[str, float | int]:
 
 def _notes(analytics: PolicyAnalytics) -> list[str]:
     notes: list[str] = []
-    if analytics.silver_first_pick_rate >= 0.35:
-        notes.append(
-            f"silver-first bias: {analytics.silver_first_pick_rate:.1%} of roll-1 picks are silver"
-        )
     if analytics.silver_pick_rate >= 0.40:
         notes.append(f"over-picks silver: {analytics.silver_pick_rate:.1%} of active picks")
     for die, share in analytics.pick_share.items():
@@ -258,6 +257,10 @@ def _notes(analytics: PolicyAnalytics) -> list[str]:
     if analytics.zero_color_rate >= 0.70:
         notes.append(
             f"leaves a color at 0 in {analytics.zero_color_rate:.1%} of games (foxes stay 0)"
+        )
+    if analytics.fox_zero_four_colors_alive_rate >= 0.20:
+        notes.append(
+            f"fox score 0 with ≥4 colors alive in {analytics.fox_zero_four_colors_alive_rate:.1%}"
         )
     if analytics.fox_nonzero_rate <= 0.05 and analytics.games >= 20:
         notes.append(f"almost never banks foxes ({analytics.fox_nonzero_rate:.1%} of games)")
@@ -290,6 +293,8 @@ def analyze_records(records: Iterable[DatasetRecord]) -> dict[str, PolicyAnalyti
     no_fox_totals: dict[str, list[int]] = defaultdict(list)
     silver_highest: dict[str, int] = defaultdict(int)
     zero_color: dict[str, int] = defaultdict(int)
+    fox_zero_four: dict[str, int] = defaultdict(int)
+    ge_goal: dict[str, int] = defaultdict(int)
 
     for record in records:
         policy = record.policy
@@ -324,6 +329,11 @@ def analyze_records(records: Iterable[DatasetRecord]) -> dict[str, PolicyAnalyti
             silver_highest[policy] += 1
         if any(score == 0 for score in color_scores):
             zero_color[policy] += 1
+        n_nonzero = sum(1 for score in color_scores if score > 0)
+        if int(record.scores.get("foxes", 0)) == 0 and n_nonzero >= 4:
+            fox_zero_four[policy] += 1
+        if record.total_score >= SCORE_GOAL:
+            ge_goal[policy] += 1
 
     reports: dict[str, PolicyAnalytics] = {}
     for policy, total_scores in totals.items():
@@ -372,6 +382,8 @@ def analyze_records(records: Iterable[DatasetRecord]) -> dict[str, PolicyAnalyti
             else 0.0,
             silver_highest_color_rate=round(silver_highest[policy] / n, 4),
             zero_color_rate=round(zero_color[policy] / n, 4),
+            fox_zero_four_colors_alive_rate=round(fox_zero_four[policy] / n, 4),
+            share_ge_goal=round(ge_goal[policy] / n, 4),
             total_histogram=_histogram(total_scores, 10),
             area_histograms={
                 key: _histogram(areas[policy][key], 5 if key != "foxes" else 5)
@@ -464,9 +476,10 @@ def format_analytics_report(report: DatasetAnalytics) -> str:
         for item in report.comparisons:
             lines.append(f"  {item}")
         lines.append("")
-    for name in ("heuristic", "greedy_immediate", "random_legal"):
-        if name not in report.policies:
-            continue
+    preferred = ("heuristic", "greedy_immediate", "random_legal")
+    names = [name for name in preferred if name in report.policies]
+    names.extend(sorted(name for name in report.policies if name not in preferred))
+    for name in names:
         analytics = report.policies[name]
         total = analytics.total
         lines.extend(
@@ -499,7 +512,9 @@ def format_analytics_report(report: DatasetAnalytics) -> str:
                 f"mean total fox/no-fox="
                 f"{analytics.mean_total_with_fox}/{analytics.mean_total_without_fox}",
                 f"  silver highest color={analytics.silver_highest_color_rate:.1%}  "
-                f"any color zero={analytics.zero_color_rate:.1%}",
+                f"any color zero={analytics.zero_color_rate:.1%}  "
+                f"fox=0 with 4+ colors={analytics.fox_zero_four_colors_alive_rate:.1%}  "
+                f"%≥{SCORE_GOAL}={analytics.share_ge_goal:.1%}",
                 "  total score histogram (bin 10):",
                 *_fmt_hist(analytics.total_histogram),
             ]
