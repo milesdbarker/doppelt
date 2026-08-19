@@ -13,6 +13,7 @@ from doppelt.sim.batch import (
     BatchResult,
     GameOutcome,
     format_batch_result,
+    play_game_with_policy,
     play_with_policy,
     resolve_worker_count,
     run_batch,
@@ -33,7 +34,15 @@ from doppelt.sim.dataset import (
 from doppelt.sim.greedy import GreedyImmediate
 from doppelt.sim.heuristic import Heuristic
 from doppelt.sim.mcts_lite import MctsLite
-from doppelt.sim.policy import POLICY_NAMES, POLICY_RNG_XOR, Policy, make_policy
+from doppelt.sim.policy import (
+    CLI_POLICY_CHOICES,
+    POLICY_ALIASES,
+    POLICY_NAMES,
+    POLICY_RNG_XOR,
+    Policy,
+    make_policy,
+    resolve_policy_name,
+)
 from doppelt.sim.random_legal import RandomLegal
 
 __all__ = [
@@ -42,6 +51,8 @@ __all__ = [
     "DatasetAnalytics",
     "DatasetError",
     "DatasetRecord",
+    "CLI_POLICY_CHOICES",
+    "POLICY_ALIASES",
     "POLICY_NAMES",
     "POLICY_RNG_XOR",
     "BatchResult",
@@ -62,7 +73,9 @@ __all__ = [
     "iter_dataset_records",
     "list_shard_paths",
     "make_policy",
+    "play_game_with_policy",
     "play_with_policy",
+    "resolve_policy_name",
     "read_shard",
     "record_to_game_log",
     "resolve_worker_count",

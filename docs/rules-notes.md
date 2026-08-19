@@ -118,8 +118,9 @@ always offered alongside whatever dice are legal on `PASSIVE_PICK`.
 ### Passive actions
 
 - **No reroll** on passive turns.
-- Unlock / plus one timing follows general action rules if ever unlocked during
-  passive (rare in solo); reroll remains blocked.
+- **No unlock** on passive turns (active only, before roll).
+- Plus one still runs at **end of turn** after the passive mark (or skip), using
+  current faces — same as after the active turn.
 
 ---
 
@@ -259,8 +260,10 @@ roll and white on another (each entry still uses both face values).
 
 ### Silver ↔ white interactions
 
-- White used **as silver**: the physical silver die goes to the platter; the silver
-  grid mark may use any row color.
+- White used **as silver**: the silver grid mark may use any row color. The physical
+  silver die is **not** consumed — it only reaches the platter through the normal
+  strictly-lower rule (silver face < white face, or pick-3 leftovers), and cascades
+  as a joker row when it does.
 - Silver die chosen: white (if discarded to platter) counts as a joker row color for
   extra platter marks triggered by silver.
 

@@ -9,6 +9,7 @@ from multiprocessing import Pool
 
 from doppelt.core.phases import Phase
 from doppelt.core.scoring import total_score
+from doppelt.core.state import GameState
 from doppelt.engine.game import apply_action, is_terminal, legal_action_ids, new_game
 from doppelt.sim.policy import POLICY_NAMES, Policy, make_policy
 
@@ -50,13 +51,13 @@ class BatchResult:
         return self.total_actions / self.games if self.games else 0.0
 
 
-def play_with_policy(
+def play_game_with_policy(
     seed: int,
     policy: Policy,
     *,
     max_actions: int = 5_000,
-) -> GameOutcome:
-    """Play one solo game with an injected policy (dice RNG still from seed)."""
+) -> GameState:
+    """Play one solo game with an injected policy; return the finished GameState."""
     state = new_game(seed=seed)
     for _ in range(max_actions):
         if state.phase is Phase.GAME_OVER:
@@ -65,7 +66,17 @@ def play_with_policy(
         if not legal:
             break
         apply_action(state, policy.select(state, legal), check_legal=False)
+    return state
 
+
+def play_with_policy(
+    seed: int,
+    policy: Policy,
+    *,
+    max_actions: int = 5_000,
+) -> GameOutcome:
+    """Play one solo game with an injected policy (dice RNG still from seed)."""
+    state = play_game_with_policy(seed, policy, max_actions=max_actions)
     done, scores = is_terminal(state)
     return GameOutcome(
         seed=seed,

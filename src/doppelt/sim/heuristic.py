@@ -14,10 +14,10 @@ from doppelt.actions.catalog_v1 import ActionKind, decode_action
 from doppelt.core.phases import Phase
 from doppelt.core.player_sheet import PlayerSheet
 from doppelt.core.score_sheet import get_score_sheet
-from doppelt.core.scoring import score_blue, score_sheet_areas, total_score
+from doppelt.core.scoring import score_sheet_areas
 from doppelt.core.silver import SILVER_ROW_COLORS
 from doppelt.core.state import GameState
-from doppelt.core.types import ActionTrack, Color, Dice
+from doppelt.core.types import ActionTrack, BonusKind, Color, Dice
 from doppelt.engine.game import apply_action, legal_action_ids
 from doppelt.sim.policy import POLICY_RNG_XOR
 
@@ -36,11 +36,13 @@ FOX_PER_LIVE_COLOR = 6.0
 FOX_ALL_COLORS = 12.0
 FOX_BANKED = 9.0
 FOX_CLAIM = 8.0
+COLOR_CROSS = 24.0
+RESERVED_PINK_WILD_SOURCES = frozenset({"blue:6", "yellow:row:4"})
 YELLOW_PENDING_CIRCLE = 3.0
 YELLOW_PARTIAL_LINE = 4.0
 YELLOW_FAMILY_FOCUS = 2.8
 YELLOW_FAMILY_MIX = 4.0
-YELLOW_EVEN_PREF = 1.8
+YELLOW_EVEN_PREF = 6.9
 YELLOW_EVEN_ROWS = frozenset({0, 2, 4})
 YELLOW_ODD_ROWS = frozenset({1, 3})
 BLUE_PROGRESS = 1.5
@@ -56,8 +58,8 @@ LATE_TARGET_ROUND = 5
 LATE_YELLOW_GAP = 2.4
 LATE_BLUE_GAP = 1.8
 
-MISS_ROLL_PICK1 = -32.0
-MISS_ROLL_PICK2 = -20.0
+MISS_ROLL_PICK1 = -232.0
+MISS_ROLL_PICK2 = -120.0
 SILVER_SWEEP = 24.0
 SILVER_WEAK = -12.0
 PINK_BONUS_SLOTS = frozenset({4, 5, 6, 7})
@@ -66,11 +68,11 @@ PINK_MISS_BONUS = -20.0
 PINK_HIT_BONUS = 5.0
 PINK_RESERVE_SETUP = 7.0
 PINK_RESERVE_READY = 12.0
-PINK_RESERVE_WASTE = -22.0
+PINK_RESERVE_WASTE = -12.0
 BLUE_PINK_WILD_SLOT = 6
 YELLOW_ROW4 = 4
 
-SILVER_FULL_SWEEP = 48.0
+SILVER_FULL_SWEEP = 28.0
 UNLOCK_WHITE = 10.0
 UNLOCK_WEIGHT = 12.0
 
@@ -84,8 +86,8 @@ GREEN_PREFERRED: dict[int, frozenset[int]] = {
     4: frozenset({5, 6}),
     5: frozenset({1, 2}),
 }
-ROUND4_GREEN6 = 14.0
-MIN_BLUE_BY_ROUND = (0, 9, 7, 6, 5, 4, 3)
+ROUND4_GREEN6 = 24.0
+MIN_BLUE_BY_ROUND = (7, 7, 6, 5, 5, 4, 2)
 
 REROLL_NO_ACCEPTABLE = 16.0
 GREEN_LATE_LOW = -22.0
@@ -115,9 +117,7 @@ def _setup_scale(round_index: int) -> float:
     return max(0.35, (7 - round_index) / 6)
 
 
-def _fox_setup(sheet: PlayerSheet) -> float:
-    areas = score_sheet_areas(sheet)
-    color_scores = [areas[name] for name in ("yellow", "blue", "pink", "green", "silver")]
+def _fox_setup(sheet: PlayerSheet, color_scores: list[int]) -> float:
     live = sum(1 for score in color_scores if score > 0)
     value = FOX_PER_LIVE_COLOR * live
     value += FOX_BANKED * sheet.foxes
@@ -253,14 +253,13 @@ def _track_setup(sheet: PlayerSheet) -> float:
     return TRACK_CIRCLE * sum(sheet.action_tracks[track].circled for track in ActionTrack)
 
 
-def _late_color_targets(state: GameState) -> float:
+def _late_color_targets(state: GameState, blue: int) -> float:
     if state.round_index < LATE_TARGET_ROUND:
         return 0.0
     value = 0.0
     projected_yellow = _projected_yellow_score(state.sheet)
     if projected_yellow < YELLOW_TARGET:
         value -= LATE_YELLOW_GAP * (YELLOW_TARGET - projected_yellow)
-    blue = score_blue(state.sheet)
     if blue < BLUE_TARGET:
         value -= LATE_BLUE_GAP * (BLUE_TARGET - blue)
     return value
@@ -269,8 +268,12 @@ def _late_color_targets(state: GameState) -> float:
 def evaluate_state(state: GameState) -> float:
     """Real end-game score plus round-scaled setup value."""
     sheet = state.sheet
+    areas = score_sheet_areas(sheet)
     setup = (
-        _fox_setup(sheet)
+        _fox_setup(
+            sheet,
+            [areas[name] for name in ("yellow", "blue", "pink", "green", "silver")],
+        )
         + _yellow_setup(sheet)
         + _blue_setup(sheet)
         + _silver_chains(sheet)
@@ -278,9 +281,9 @@ def evaluate_state(state: GameState) -> float:
         + _track_setup(sheet)
     )
     return (
-        total_score(sheet)
+        sum(areas.values())
         + _setup_scale(state.round_index) * setup
-        + _late_color_targets(state)
+        + _late_color_targets(state, areas["blue"])
         + _pink_hard_reserve(state)
     )
 
@@ -663,6 +666,47 @@ def _fox_claim_adjust(before: PlayerSheet, after: PlayerSheet) -> float:
     return FOX_CLAIM * gained
 
 
+@lru_cache(maxsize=1)
+def _wild_bonus_sources() -> frozenset[str]:
+    sheet = get_score_sheet()
+    sources: set[str] = set()
+    for value, bonus in enumerate(sheet.silver.column_bonuses, start=1):
+        if bonus is not None and bonus.kind is BonusKind.BONUS_WILD:
+            sources.add(f"silver:col:{value}")
+    for index, bonus in enumerate(sheet.yellow.row_completion_bonuses):
+        if bonus is not None and bonus.kind is BonusKind.BONUS_WILD:
+            sources.add(f"yellow:row:{index}")
+    for index, bonus in enumerate(sheet.yellow.column_completion_bonuses):
+        if bonus is not None and bonus.kind is BonusKind.BONUS_WILD:
+            sources.add(f"yellow:col:{index}")
+    for area_name, area in (("blue", sheet.blue), ("green", sheet.green), ("pink", sheet.pink)):
+        for entry in area.field_bonuses:
+            if entry.bonus is not None and entry.bonus.kind is BonusKind.BONUS_WILD:
+                sources.add(f"{area_name}:{entry.slot}")
+    for track, definition in sheet.action_tracks.items():
+        end = definition.end_bonus
+        if end is not None and end.kind is BonusKind.BONUS_WILD:
+            sources.add(f"action:{track.value}:end")
+    return frozenset(sources)
+
+
+def _color_cross_adjust(before: PlayerSheet, after: PlayerSheet) -> float:
+    """+COLOR_CROSS per newly claimed bonus-wild, with no extra search."""
+    gained = after.claimed_bonuses - before.claimed_bonuses
+    if not gained:
+        return 0.0
+    wilds = _wild_bonus_sources()
+    hold_pink = before.next_pink_slot() not in PINK_HARD_SLOTS
+    value = 0.0
+    for source in gained:
+        if source not in wilds:
+            continue
+        if hold_pink and source in RESERVED_PINK_WILD_SOURCES:
+            continue
+        value += COLOR_CROSS
+    return value
+
+
 def _pink_bonus_adjust(before: PlayerSheet, after: PlayerSheet) -> float:
     slot = before.next_pink_slot()
     if slot not in PINK_BONUS_SLOTS:
@@ -700,6 +744,7 @@ def _value_after(state: GameState, action_id: int, *, depth: int, root: GameStat
             + prior
             + _pink_bonus_adjust(root.sheet, trial.sheet)
             + _fox_claim_adjust(root.sheet, trial.sheet)
+            + _color_cross_adjust(root.sheet, trial.sheet)
         )
     follow_ups = legal_action_ids(trial)
     if not follow_ups:
@@ -708,6 +753,7 @@ def _value_after(state: GameState, action_id: int, *, depth: int, root: GameStat
             + prior
             + _pink_bonus_adjust(root.sheet, trial.sheet)
             + _fox_claim_adjust(root.sheet, trial.sheet)
+            + _color_cross_adjust(root.sheet, trial.sheet)
         )
     return prior + max(
         _value_after(trial, follow_id, depth=depth + 1, root=root) for follow_id in follow_ups

@@ -443,12 +443,34 @@ def test_heuristic_round4_wild_prefers_positive_green_6():
     assert Heuristic(0).select(state, legal) == choose_wild_color_id(Color.GREEN)
 
 
+def test_heuristic_prefers_pick_that_claims_color_cross():
+    """Blue slot 2 enqueues a yellow wild; that claimed bonus beats a bonusless pink 6."""
+    state = new_game(seed=29)
+    roll_hand(state)
+    state.awaiting_roll = False
+    state.picks_made = 2
+    state.sheet.blue[0] = 12
+    state.sheet.blue[1] = 11
+    state.hand = [Dice.BLUE, Dice.PINK]
+    state.platter = []
+    state.faces[Dice.BLUE] = 5
+    state.faces[Dice.WHITE] = 5
+    state.faces[Dice.PINK] = 6
+
+    legal = legal_action_ids(state)
+    assert pick_die_id(Dice.BLUE) in legal
+    assert pick_die_id(Dice.PINK) in legal
+    assert GreedyImmediate(0).select(state, legal) == pick_die_id(Dice.PINK)
+    assert Heuristic(0).select(state, legal) == pick_die_id(Dice.BLUE)
+
+
 def test_heuristic_trial_does_not_mutate_live_state():
     state = new_game(seed=4)
     state.sheet.circle_action(ActionTrack.REROLL)
     roll_hand(state)
     faces_before = dict(state.faces)
     log_before = list(state.action_log)
+    rng_before = state.rng.getstate()
     legal = legal_action_ids(state)
     assert len(legal) > 1
 
@@ -456,6 +478,7 @@ def test_heuristic_trial_does_not_mutate_live_state():
 
     assert dict(state.faces) == faces_before
     assert state.action_log == log_before
+    assert state.rng.getstate() == rng_before
 
 
 def test_heuristic_reaches_terminal():

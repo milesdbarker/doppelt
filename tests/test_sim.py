@@ -9,6 +9,9 @@ from doppelt.sim import RandomLegal, format_batch_result, make_policy, play_with
 
 def test_make_policy_random_and_unknown():
     assert make_policy("random_legal", seed=1).name == "random_legal"
+    assert make_policy("random", seed=1).name == "random_legal"
+    assert make_policy("greedy", seed=1).name == "greedy_immediate"
+    assert make_policy("mcts-lite", seed=1).name == "mcts_lite"
     with pytest.raises(ValueError, match="unknown policy"):
         make_policy("not_a_bot", seed=1)
 

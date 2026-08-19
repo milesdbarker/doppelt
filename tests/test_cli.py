@@ -32,7 +32,27 @@ def test_random_command_prints_total():
     buf = io.StringIO()
     code = run_random(seed=42, output=buf)
     assert code == 0
-    assert "total:" in buf.getvalue()
+    text = buf.getvalue()
+    assert "total:" in text
+    assert "random_legal solo game" in text
+
+
+def test_random_command_heuristic_policy():
+    buf = io.StringIO()
+    code = run_random(seed=42, policy="heuristic", output=buf)
+    assert code == 0
+    text = buf.getvalue()
+    assert "heuristic solo game" in text
+    assert "total:" in text
+
+
+def test_random_command_greedy_alias(tmp_path: Path):
+    log_path = tmp_path / "greedy.bin"
+    buf = io.StringIO()
+    code = run_random(seed=11, policy="greedy", save_path=log_path, output=buf)
+    assert code == 0
+    assert "greedy_immediate solo game" in buf.getvalue()
+    assert log_path.is_file()
 
 
 def test_random_save_and_replay(tmp_path: Path, capsys):
@@ -198,6 +218,22 @@ def test_main_random_subcommand(capsys):
     assert code == 0
 
 
+def test_main_random_policy_help(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["random", "--help"])
+    assert exc.value.code == 0
+    text = capsys.readouterr().out
+    assert "--policy" in text
+    assert "heuristic" in text
+    assert "mcts-lite" in text
+
+
+def test_main_random_rejects_unknown_policy():
+    with pytest.raises(SystemExit) as exc:
+        main(["random", "--policy", "not-a-bot"])
+    assert exc.value.code == 2
+
+
 def test_simulate_command_reports_throughput():
     buf = io.StringIO()
     code = run_simulate(games=4, seed=3, workers=1, policy="random_legal", output=buf)
@@ -206,6 +242,58 @@ def test_simulate_command_reports_throughput():
     assert "4 random_legal games" in text
     assert "games/s" in text
     assert "unfinished:   0" in text
+
+
+def test_main_train_bc_requires_source():
+    from doppelt.cli.commands import run_train_bc
+
+    buf = io.StringIO()
+    code = run_train_bc(
+        in_dir=None,
+        live_games=0,
+        policy="heuristic",
+        max_games=1,
+        seed=0,
+        epochs=1,
+        batch_size=8,
+        hidden=32,
+        architecture="mlp",
+        lr=1e-3,
+        val_frac=0.1,
+        out_path=Path("data/models/unused.pt"),
+        output=buf,
+    )
+    assert code == 2
+    assert "live-games" in buf.getvalue()
+
+
+def test_main_eval_help(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["eval", "--help"])
+    assert exc.value.code == 0
+    text = capsys.readouterr().out
+    assert "checkpoint" in text
+    assert "--mcts-sims" in text
+
+
+def test_main_train_bc_help(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["train", "bc", "--help"])
+    assert exc.value.code == 0
+    text = capsys.readouterr().out
+    assert "--live-games" in text
+    assert "--in" in text
+    assert "--arch" in text
+
+
+def test_main_train_selfplay_help(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["train", "selfplay", "--help"])
+    assert exc.value.code == 0
+    text = capsys.readouterr().out
+    assert "--init" in text
+    assert "--iters" in text
+    assert "--kl" in text
 
 
 def test_main_dataset_generate_help(capsys):

@@ -185,7 +185,8 @@ def apply_action(state: GameState, action_id: int, *, check_legal: bool = True) 
     if check_legal and action_id not in legal_action_ids(state):
         raise ValueError(f"illegal action {action_id} in phase {state.phase}")
 
-    state.action_log.append(action_id)
+    if state.record_trace:
+        state.action_log.append(action_id)
 
     if action.kind is ActionKind.FORFEIT_PICK:
         _forfeit_pick(state)
@@ -342,7 +343,7 @@ def _process_bonus_resume(state: GameState) -> None:
 
 
 def _roll_hand(state: GameState) -> None:
-
+    state.ensure_private_rng()
     for die in state.hand:
         state.faces[die] = state.rng.randint(1, 6)
 
@@ -385,6 +386,7 @@ def _begin_active_turn(state: GameState) -> None:
     apply_round_start_grants(state)
 
     state.awaiting_roll = True
+    state.plus_one_after_passive = False
 
     try_enter_bonus_phase(state, Phase.ACTIVE_PICK)
 
@@ -669,21 +671,12 @@ def _start_active_silver_pick(
 
 def _start_white_as_silver(state: GameState, platter_sent: list[Dice]) -> None:
 
-    cascade_sent = list(platter_sent)
-
-    # White used as silver sends the physical silver die to the platter — that
-    # die *was* moved by this pick, so it is a cascade mark (joker row).
-    if Dice.SILVER in state.hand:
-        state.hand.remove(Dice.SILVER)
-
-        state.platter.append(Dice.SILVER)
-
-        cascade_sent.append(Dice.SILVER)
-
+    # The physical silver die is not consumed by this mark: it only reaches the
+    # platter through the normal strictly-lower rule in `_complete_pick`.
     _start_active_silver_pick(
         state,
         primary_value=state.faces[Dice.WHITE],
-        platter_sent=cascade_sent,
+        platter_sent=platter_sent,
     )
 
 
@@ -1142,6 +1135,7 @@ def begin_passive_turn(state: GameState) -> None:
 
     _clear_silver_pending(state)
 
+    state.ensure_private_rng()
     rolls = [DieRoll(die=die, value=state.rng.randint(1, 6)) for die in ALL_DICE]
 
     for roll in rolls:
@@ -1212,8 +1206,12 @@ def _pick_passive_die(state: GameState, die: Dice, *, from_pool: bool) -> None:
         if die not in state.passive_pool:
             raise ValueError("die not in passive pool")
 
+        state.passive_pool.remove(die)
+
     elif die not in state.platter:
         raise ValueError("die not on platter")
+
+    # Platter dice stay in place; the pick only copies the face onto the sheet.
 
     if die is Dice.SILVER:
         start_silver_resolution(

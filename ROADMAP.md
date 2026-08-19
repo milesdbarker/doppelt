@@ -278,7 +278,7 @@ seed=42  catalog=v1  actions=[12, 45, 45, 102, …]
 #### Catalog maintenance
 
 - [ ] Ship `action_catalog_v1.json` (or YAML) listing every ID and its meaning — source of truth for tests and docs.
-- [ ] Unit test: catalog is contiguous, no duplicate semantics, size matches `ACTION_SPACE_SIZE`.
+- [x] Unit test: catalog is contiguous-enough (holes allowed), no duplicate semantics, size matches `ACTION_SPACE_SIZE`.
 - [x] Unit test: random legal play → encode IDs → replay → identical terminal state.
 
 
@@ -447,44 +447,52 @@ Encode `GameState` as fixed-size tensors (for solo first):
 
 Keep encoding versioned (`encoding_v1`) so you can change without breaking old models.
 
+**Shipped:** `doppelt.ml.encoding` (`ENCODING_VERSION = 1`) plus a catalog-sized legal mask. Default net is `pvn_v1` (see 3.3). Train with `doppelt train bc`; play with `--policy neural --checkpoint`.
+
 ### 3.2 Action space
 
-Fixed discrete space with **legal mask**:
+Fixed discrete space with **legal mask** (`ACTION_SPACE_SIZE = 192`, same indices as the catalog):
 
-- Phase-specific subsets (e.g., only `PICK_DIE` actions during pick phase).
-- Composite actions where safe (pick + mark bundled if uniqueness holds).
-- Illegal actions masked to −inf before softmax.
+- [x] **Phase-specific subsets** — `doppelt.actions.space.PHASE_ACTION_IDS`; active pick splits pre-roll vs post-roll via `candidate_action_ids(state)`.
+- [x] **Composite pick+mark** — blue / green / pink picks apply the only mark; yellow / white auto-apply when the cell or mode is unique; follow-up IDs cover remaining choices.
+- [x] **Illegal actions masked to −inf** before softmax (`ILLEGAL_LOGIT` in the policy head).
+
+Holes in 0–191 are unused padding (stable IDs). `SILVER_SKIP_CASCADE` (124) stays in the catalog for old logs but is never legal.
 
 Size may be large (silver color choices, bonus targets). Start with explicit enumeration; compress later if needed.
 
 ### 3.3 Model architecture (starting point)
 
 
-| Component   | Suggestion                                           |
-| ----------- | ---------------------------------------------------- |
-| Backbone    | Small MLP or 1D CNN over flattened sheet + dice      |
-| Policy head | Linear → softmax over action space (masked)          |
-| Value head  | Linear → scalar (expected final score)               |
-| Size        | Small first (~100k–1M params); scale if underfitting |
+| Component   | Shipped (`pvn_v1`)                                      |
+| ----------- | ------------------------------------------------------- |
+| Backbone    | Sheet MLP + 1D CNN over 6 dice + context MLP, fused     |
+| Policy head | Linear → masked softmax (`ILLEGAL_LOGIT` = −inf)        |
+| Value head  | Linear → scalar (final score / `SCORE_SCALE`)           |
+| Size        | Default hidden 256 is ~100k–1M params; `--arch mlp` kept for old BC checkpoints |
+
+
+**Shipped:** `doppelt.ml.model` — `build_net(architecture="pvn_v1")`. Retrain BC after this change; checkpoints without `architecture` still load as `mlp`.
 
 
 
 
 ### 3.4 Training approaches (try in order)
 
-1. **Behavioral cloning** — imitate heuristic bot games from Phase 2 (fast sanity check).
-2. **Supervised on best-of-N** — label actions from best rollout among N random continuations.
-3. **Policy gradient / Actor-Critic** — reward = final score (or shaped intermediate rewards).
-4. **Self-play** — current policy vs itself; optional league of checkpoint opponents.
+1. **Behavioral cloning** — imitate heuristic bot games from Phase 2 (`doppelt train bc`).
+2. **Supervised on best-of-N** — label actions from best rollout among N random continuations. *(not yet)*
+3. **Policy gradient / Actor-Critic** — reward = final score / `SCORE_SCALE` (`doppelt train selfplay`).
+4. **Self-play** — current policy samples solo games vs the dice RNG; optional `--kl` toward the BC init; best checkpoint by greedy eval score.
+5. **Play-time PUCT** — `--mcts-sims N` on `doppelt eval` / `doppelt random --policy neural` (does not slow training).
 
 For solo roll-and-write, **final score RL** is natural; consider auxiliary rewards for fox setup only if training is too sparse.
 
 ### 3.5 Training loop
 
-- [ ] `Dataset` from Parquet logs OR on-the-fly self-play generator.
-- [ ] Train/val split by seed ranges (avoid leakage).
-- [ ] Log: loss, policy entropy, mean episode score, eval vs heuristic every N steps.
-- [ ] Checkpoint best model by **eval score**, not train loss.
+- [x] `Dataset` from DPLD shard replay or live bot games; optional Parquet later.
+- [x] Train/val split by seed (`seed % 10`, `--val-frac`).
+- [x] Log: train/val loss; eval vs heuristic/random via `doppelt eval`.
+- [x] Checkpoint best BC model by **val loss**; self-play keeps best by **greedy eval score**.
 
 
 
@@ -493,8 +501,8 @@ For solo roll-and-write, **final score RL** is natural; consider auxiliary rewar
 
 | Milestone | Definition of done                                          |
 | --------- | ----------------------------------------------------------- |
-| **M3.1**  | State/action encoding implemented and tested                |
-| **M3.2**  | BC model beats RandomLegal by wide margin                   |
+| **M3.1**  | State/action encoding implemented and tested ✅ (`encoding_v1`) |
+| **M3.2**  | BC model beats RandomLegal by wide margin ✅            |
 | **M3.3**  | RL/self-play improves over BC on eval suite                 |
 | **M3.4**  | 10k eval games: report mean/median score + comparison table |
 
@@ -534,7 +542,7 @@ For solo roll-and-write, **final score RL** is natural; consider auxiliary rewar
 ### 4.3 Possible next steps (decide after data)
 
 - Multi-player (3–4 players) engine + opponent modeling.
-- Stronger search: MCTS with policy prior, depth-limited rollouts.
+- Stronger search: MCTS with policy prior ✅ play-time PUCT (`--mcts-sims`; not used in `train selfplay`).
 - Larger model / transformer over sheet regions.
 - Distributed self-play on cloud GPU.
 - Human UI: web score sheet + agent suggestions.
@@ -597,7 +605,7 @@ yet done or known incorrect vs rulebook.
 | ✅ | Yellow mode — circle/cross via yellow cell choice (catalog 23 → 10–19 / 151–160 / 161–170) |
 | ✅ | Green mode |
 | ✅ | Pink mode — write face in next pink slot (catalog 24) |
-| ✅ | Silver mode (physical silver die → platter) |
+| ✅ | Silver mode — any row color; physical silver die stays in hand unless strictly lower |
 
 ### Silver die
 
@@ -708,10 +716,10 @@ Use this as a living progress tracker. See [Rule Parity Checklist (solo)](#rule-
 
 ### Phase 3
 
-- [ ] Encoding + model
-- [ ] BC training works
-- [ ] Self-play / RL improves score
-- [ ] Checkpoints + eval suite
+- [x] Encoding + model (`encoding_v1`, `pvn_v1` policy/value, legal mask)
+- [x] BC training works (beats RandomLegal)
+- [x] Self-play / RL loop (`doppelt train selfplay`); score vs BC still to confirm on eval suite
+- [x] Checkpoints + eval suite (`doppelt eval`, `doppelt random --policy neural`)
 
 
 
@@ -768,9 +776,9 @@ Use this as a living progress tracker. See [Rule Parity Checklist (solo)](#rule-
 
 ## Suggested work order (next 3 sessions)
 
-1. **Session 1:** Phase 0 — `pyproject.toml`, score sheet YAML, enums, empty `GameState`.
-2. **Session 2:** Phase 1.1–1.2 — turn loop + yellow/pink/blue without bonuses.
-3. **Session 3:** CLI random self-play + binary action log + first golden replay test.
+1. **Session 1:** `doppelt eval CHECKPOINT --games 16 --mcts-sims 32` vs greedy (no `--mcts-sims`) on the same seeds.
+2. **Session 2:** If search helps, keep training as greedy A2C; use MCTS only for play/eval.
+3. **Session 3:** Only then consider search-generated labels for a new BC round (slow).
 
 ---
 
@@ -784,4 +792,4 @@ Use this as a living progress tracker. See [Rule Parity Checklist (solo)](#rule-
 
 ---
 
-*Last updated: 2026-08-11 — rule parity checklist added; action log: binary uint16 catalog IDs.*
+*Last updated: 2026-08-15 — Phase 3 self-play actor-critic (`doppelt train selfplay`).*

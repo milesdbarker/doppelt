@@ -1,5 +1,6 @@
 """Action track state and usage tests."""
 
+import pytest
 from tests.conftest import roll_hand
 
 from doppelt.actions.catalog_v1 import (
@@ -15,7 +16,13 @@ from doppelt.core.score_sheet import Bonus
 from doppelt.core.types import ActionTrack, BonusKind, Dice
 from doppelt.engine.bonus_flow import drain_auto_bonus_queue
 from doppelt.engine.bonus_queue import enqueue_bonus
-from doppelt.engine.game import advance_round_or_game_over, apply_action, legal_action_ids, new_game
+from doppelt.engine.game import (
+    advance_round_or_game_over,
+    apply_action,
+    begin_passive_turn,
+    legal_action_ids,
+    new_game,
+)
 
 
 def test_action_bonus_circles_track():
@@ -154,3 +161,20 @@ def test_empty_hand_without_unlock_still_ends_turn():
 
     assert end_active_turn_id() not in legal_action_ids(state)
     assert unlock_platter_id(Dice.YELLOW) not in legal_action_ids(state)
+
+
+def test_unlock_not_legal_on_passive_turn():
+    state = new_game(seed=10)
+    state.sheet.circle_action(ActionTrack.UNLOCK)
+    begin_passive_turn(state)
+    state.platter = [Dice.YELLOW, Dice.BLUE, Dice.GREEN]
+    state.passive_pool = [Dice.WHITE, Dice.PINK, Dice.SILVER]
+    state.use_pool_fallback = False
+    state.awaiting_roll = True  # even if wrongly set, unlock must stay blocked
+
+    legal = legal_action_ids(state)
+    assert state.phase is Phase.PASSIVE_PICK
+    assert unlock_platter_id(Dice.YELLOW) not in legal
+    assert end_active_turn_id() not in legal
+    with pytest.raises(ValueError, match="active turn"):
+        apply_action(state, unlock_platter_id(Dice.YELLOW), check_legal=False)

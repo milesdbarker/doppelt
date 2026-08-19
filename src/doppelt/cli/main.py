@@ -9,13 +9,17 @@ from doppelt.cli.commands import (
     run_dataset_analyze,
     run_dataset_generate,
     run_decode,
+    run_eval,
     run_play,
     run_random,
     run_replay,
     run_simulate,
+    run_train_bc,
+    run_train_selfplay,
+    run_visualize,
 )
 from doppelt.sim.dataset import DATASET_POLICIES, DEFAULT_MIX, DEFAULT_SHARD_SIZE
-from doppelt.sim.policy import POLICY_NAMES
+from doppelt.sim.policy import CLI_POLICY_CHOICES, POLICY_NAMES
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -34,8 +38,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="write binary action log when the game finishes",
     )
 
-    random_cmd = subparsers.add_parser("random", help="play a random legal solo game")
+    random_cmd = subparsers.add_parser(
+        "random",
+        help="play one solo game with a bot policy and optionally save a log",
+    )
     random_cmd.add_argument("--seed", type=int, default=1, help="game seed (default: 1)")
+    random_cmd.add_argument(
+        "--policy",
+        choices=list(CLI_POLICY_CHOICES) + ["neural"],
+        default="random",
+        help="bot policy (default: random). Also accepts random_legal, greedy_immediate, mcts_lite",
+    )
     random_cmd.add_argument(
         "--max-actions",
         type=int,
@@ -47,6 +60,18 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         metavar="LOG",
         help="write binary action log",
+    )
+    random_cmd.add_argument(
+        "--checkpoint",
+        type=Path,
+        default=None,
+        help="neural policy checkpoint (required with --policy neural)",
+    )
+    random_cmd.add_argument(
+        "--mcts-sims",
+        type=int,
+        default=0,
+        help="PUCT simulations per neural decision (0 = greedy, no search)",
     )
 
     replay = subparsers.add_parser("replay", help="replay a binary action log")
@@ -60,6 +85,29 @@ def build_parser() -> argparse.ArgumentParser:
 
     decode = subparsers.add_parser("decode", help="pretty-print a binary log header and actions")
     decode.add_argument("log", type=Path, help="path to .bin log file")
+
+    visualize = subparsers.add_parser(
+        "visualize",
+        help="overlay a replay on the score sheet and step through decisions",
+    )
+    visualize.add_argument("log", type=Path, help="path to .bin log file")
+    visualize.add_argument(
+        "--out",
+        type=Path,
+        metavar="PNG",
+        help="write the selected frame as a PNG",
+    )
+    visualize.add_argument(
+        "--step",
+        type=int,
+        default=None,
+        help="frame index to show/save (0 = before any action; default = final)",
+    )
+    visualize.add_argument(
+        "--no-window",
+        action="store_true",
+        help="do not open the interactive viewer",
+    )
 
     simulate = subparsers.add_parser(
         "simulate",
@@ -155,6 +203,130 @@ def build_parser() -> argparse.ArgumentParser:
         help="optional JSON report path",
     )
 
+    train = subparsers.add_parser("train", help="train a neural policy")
+    train_sub = train.add_subparsers(dest="train_command", required=True)
+    train_bc = train_sub.add_parser(
+        "bc",
+        help="behavioral cloning from DPLD shards or live bot games",
+    )
+    train_bc.add_argument(
+        "--in",
+        dest="in_dir",
+        type=Path,
+        default=None,
+        help="DPLD dataset directory (optional if --live-games is set)",
+    )
+    train_bc.add_argument(
+        "--live-games",
+        type=int,
+        default=0,
+        help="play this many bot games instead of (or in addition to) shards",
+    )
+    train_bc.add_argument(
+        "--policy",
+        default="heuristic",
+        help="dataset filter / live bot name (default: heuristic)",
+    )
+    train_bc.add_argument(
+        "--max-games",
+        type=int,
+        default=2_000,
+        help="max shard games to replay (default: 2000)",
+    )
+    train_bc.add_argument("--seed", type=int, default=0, help="live-game seed start / torch seed")
+    train_bc.add_argument("--epochs", type=int, default=8, help="training epochs (default: 8)")
+    train_bc.add_argument("--batch-size", type=int, default=64, help="minibatch size")
+    train_bc.add_argument("--hidden", type=int, default=256, help="trunk hidden size (default: 256)")
+    train_bc.add_argument(
+        "--arch",
+        dest="architecture",
+        choices=["pvn_v1", "mlp"],
+        default="pvn_v1",
+        help="model architecture (default: pvn_v1; mlp is the original flat trunk)",
+    )
+    train_bc.add_argument("--lr", type=float, default=1e-3, help="Adam learning rate")
+    train_bc.add_argument(
+        "--val-frac",
+        type=float,
+        default=0.1,
+        help="fraction of seeds held out by seed %% 10 (default: 0.1)",
+    )
+    train_bc.add_argument(
+        "--out",
+        type=Path,
+        default=Path("data/models/bc_v1.pt"),
+        help="checkpoint path (default: data/models/bc_v1.pt)",
+    )
+
+    train_sp = train_sub.add_parser(
+        "selfplay",
+        help="actor-critic self-play from a BC checkpoint (solo vs dice RNG)",
+    )
+    train_sp.add_argument(
+        "--init",
+        type=Path,
+        default=None,
+        help="starting checkpoint (BC); random pvn_v1 if omitted",
+    )
+    train_sp.add_argument(
+        "--out",
+        type=Path,
+        default=Path("data/models/selfplay_v1.pt"),
+        help="best checkpoint path (default: data/models/selfplay_v1.pt)",
+    )
+    train_sp.add_argument("--iters", type=int, default=20, help="gradient steps (default: 20)")
+    train_sp.add_argument(
+        "--games",
+        type=int,
+        default=16,
+        help="sampled games per iteration (default: 16)",
+    )
+    train_sp.add_argument("--seed", type=int, default=0, help="first self-play seed")
+    train_sp.add_argument("--lr", type=float, default=3e-4, help="Adam learning rate")
+    train_sp.add_argument("--entropy", type=float, default=0.01, help="entropy bonus")
+    train_sp.add_argument("--value-coef", type=float, default=0.5, help="value loss weight")
+    train_sp.add_argument(
+        "--kl",
+        type=float,
+        default=0.0,
+        help="KL penalty toward --init (default: 0)",
+    )
+    train_sp.add_argument("--eval-games", type=int, default=16, help="greedy eval games")
+    train_sp.add_argument("--eval-seed", type=int, default=20_000, help="greedy eval seed start")
+    train_sp.add_argument("--eval-every", type=int, default=5, help="eval every N iters")
+    train_sp.add_argument("--hidden", type=int, default=256, help="used only if --init is omitted")
+    train_sp.add_argument(
+        "--arch",
+        dest="architecture",
+        choices=["pvn_v1", "mlp"],
+        default="pvn_v1",
+        help="used only if --init is omitted",
+    )
+
+    evaluate = subparsers.add_parser(
+        "eval",
+        help="score a neural checkpoint vs baseline bots on a fixed seed range",
+    )
+    evaluate.add_argument("checkpoint", type=Path, help="path to .pt checkpoint")
+    evaluate.add_argument("--games", type=int, default=64, help="games per agent (default: 64)")
+    evaluate.add_argument("--seed", type=int, default=10_000, help="first eval seed (default: 10000)")
+    evaluate.add_argument(
+        "--baselines",
+        default="random_legal",
+        help="comma-separated bot names (default: random_legal)",
+    )
+    evaluate.add_argument(
+        "--sample",
+        action="store_true",
+        help="sample from the policy instead of greedy argmax",
+    )
+    evaluate.add_argument(
+        "--mcts-sims",
+        type=int,
+        default=0,
+        help="PUCT simulations per neural decision (0 = greedy, no search)",
+    )
+
     return parser
 
 
@@ -165,11 +337,25 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "play":
         return run_play(seed=args.seed, save_path=args.save)
     if args.command == "random":
-        return run_random(seed=args.seed, max_actions=args.max_actions, save_path=args.save)
+        return run_random(
+            seed=args.seed,
+            max_actions=args.max_actions,
+            save_path=args.save,
+            policy=args.policy,
+            checkpoint=args.checkpoint,
+            mcts_sims=args.mcts_sims,
+        )
     if args.command == "replay":
         return run_replay(args.log, verbose=args.verbose)
     if args.command == "decode":
         return run_decode(args.log)
+    if args.command == "visualize":
+        return run_visualize(
+            args.log,
+            out_path=args.out,
+            window=not args.no_window,
+            step=args.step,
+        )
     if args.command == "simulate":
         return run_simulate(
             games=args.games,
@@ -193,6 +379,49 @@ def main(argv: list[str] | None = None) -> int:
         if args.dataset_command == "analyze":
             return run_dataset_analyze(in_dir=args.in_dir, json_path=args.json_path)
         parser.error(f"unknown dataset command {args.dataset_command!r}")
+    if args.command == "train":
+        if args.train_command == "bc":
+            return run_train_bc(
+                in_dir=args.in_dir,
+                live_games=args.live_games,
+                policy=args.policy,
+                max_games=args.max_games,
+                seed=args.seed,
+                epochs=args.epochs,
+                batch_size=args.batch_size,
+                hidden=args.hidden,
+                architecture=args.architecture,
+                lr=args.lr,
+                val_frac=args.val_frac,
+                out_path=args.out,
+            )
+        if args.train_command == "selfplay":
+            return run_train_selfplay(
+                init_checkpoint=args.init,
+                out_path=args.out,
+                iterations=args.iters,
+                games_per_iter=args.games,
+                seed=args.seed,
+                lr=args.lr,
+                entropy_coef=args.entropy,
+                value_coef=args.value_coef,
+                kl_coef=args.kl,
+                eval_games=args.eval_games,
+                eval_seed=args.eval_seed,
+                eval_every=args.eval_every,
+                hidden=args.hidden,
+                architecture=args.architecture,
+            )
+        parser.error(f"unknown train command {args.train_command!r}")
+    if args.command == "eval":
+        return run_eval(
+            checkpoint=args.checkpoint,
+            games=args.games,
+            seed=args.seed,
+            baselines=args.baselines,
+            sample=args.sample,
+            mcts_sims=args.mcts_sims,
+        )
 
     parser.error(f"unknown command {args.command!r}")
     return 2

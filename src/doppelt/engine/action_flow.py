@@ -9,6 +9,7 @@ from doppelt.actions.catalog_v1 import (
     use_reroll_id,
 )
 from doppelt.core.action_tracks import ACTION_BONUS_TO_TRACK, track_capacity
+from doppelt.core.phases import Phase
 from doppelt.core.score_sheet import Bonus, get_score_sheet
 from doppelt.core.state import GameState
 from doppelt.core.types import ActionTrack, BonusKind, Dice
@@ -61,7 +62,8 @@ def apply_round_start_grants(state: GameState) -> None:
 def can_choose_unlock_or_end_turn(state: GameState) -> bool:
     """Empty hand with an unused unlock and dice on the platter — player chooses next."""
     return (
-        state.picks_made < 3
+        state.phase is Phase.ACTIVE_PICK
+        and state.picks_made < 3
         and not state.hand
         and state.sheet.can_use_action(ActionTrack.UNLOCK)
         and bool(state.platter)
@@ -91,6 +93,7 @@ def apply_roll_hand(state: GameState) -> None:
         raise ValueError("roll is only legal before picking")
     if not state.hand:
         raise ValueError("no dice in hand to roll")
+    state.ensure_private_rng()
     for die in state.hand:
         state.faces[die] = state.rng.randint(1, 6)
     state.awaiting_roll = False
@@ -102,11 +105,14 @@ def apply_use_reroll(state: GameState) -> None:
     if not state.hand:
         raise ValueError("no dice in hand to reroll")
     state.sheet.use_action(ActionTrack.REROLL)
+    state.ensure_private_rng()
     for die in state.hand:
         state.faces[die] = state.rng.randint(1, 6)
 
 
 def apply_unlock_platter(state: GameState, die: Dice) -> None:
+    if state.phase is not Phase.ACTIVE_PICK:
+        raise ValueError("unlock is only legal on the active turn")
     if not state.awaiting_roll:
         raise ValueError("unlock is only legal before rolling")
     if die not in state.platter:

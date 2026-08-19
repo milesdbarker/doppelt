@@ -48,24 +48,33 @@ def _color_area_scores(sheet: PlayerSheet) -> list[int]:
     ]
 
 
-def score_foxes(sheet: PlayerSheet) -> int:
+def score_foxes_from_colors(fox_count: int, color_scores: list[int]) -> int:
     """Each fox scores the lowest color total; 0 if any color scores 0."""
-    if sheet.foxes == 0:
+    if fox_count == 0:
         return 0
-    color_scores = _color_area_scores(sheet)
     if any(score == 0 for score in color_scores):
         return 0
-    return sheet.foxes * min(color_scores)
+    return fox_count * min(color_scores)
+
+
+def score_foxes(sheet: PlayerSheet) -> int:
+    """Each fox scores the lowest color total; 0 if any color scores 0."""
+    return score_foxes_from_colors(sheet.foxes, _color_area_scores(sheet))
 
 
 def score_sheet_areas(sheet: PlayerSheet) -> dict[str, int]:
+    yellow = score_yellow(sheet)
+    blue = score_blue(sheet)
+    pink = score_pink(sheet)
+    green = score_green(sheet)
+    silver = score_silver(sheet)
     return {
-        "yellow": score_yellow(sheet),
-        "blue": score_blue(sheet),
-        "pink": score_pink(sheet),
-        "green": score_green(sheet),
-        "silver": score_silver(sheet),
-        "foxes": score_foxes(sheet),
+        "yellow": yellow,
+        "blue": blue,
+        "pink": pink,
+        "green": green,
+        "silver": silver,
+        "foxes": score_foxes_from_colors(sheet.foxes, [yellow, blue, pink, green, silver]),
     }
 
 

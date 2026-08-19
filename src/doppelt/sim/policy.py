@@ -15,6 +15,34 @@ POLICY_RNG_XOR = 0xBAD5_EED
 
 POLICY_NAMES = ("random_legal", "greedy_immediate", "heuristic", "mcts_lite")
 
+# Short CLI names plus the canonical POLICY_NAMES.
+POLICY_ALIASES: dict[str, str] = {
+    "random": "random_legal",
+    "random_legal": "random_legal",
+    "greedy": "greedy_immediate",
+    "greedy_immediate": "greedy_immediate",
+    "heuristic": "heuristic",
+    "mcts-lite": "mcts_lite",
+    "mcts_lite": "mcts_lite",
+}
+
+CLI_POLICY_CHOICES = (
+    "random",
+    "greedy",
+    "heuristic",
+    "mcts-lite",
+    "random_legal",
+    "greedy_immediate",
+    "mcts_lite",
+)
+
+
+def resolve_policy_name(name: str) -> str:
+    canonical = POLICY_ALIASES.get(name)
+    if canonical is None:
+        raise ValueError(f"unknown policy {name!r}; expected one of {CLI_POLICY_CHOICES}")
+    return canonical
+
 
 class Policy(Protocol):
     name: str
@@ -24,6 +52,7 @@ class Policy(Protocol):
 
 
 def make_policy(name: str, seed: int) -> Policy:
+    name = resolve_policy_name(name)
     if name == "random_legal":
         from doppelt.sim.random_legal import RandomLegal
 

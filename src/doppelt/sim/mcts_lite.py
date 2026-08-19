@@ -29,6 +29,7 @@ SCORE_SCALE = 200.0
 
 def _fork_trial(state: GameState, rng: random.Random) -> GameState:
     trial = state.copy_for_trial()
+    trial.ensure_private_rng()
     trial.rng.seed(rng.randrange(1 << 30))
     return trial
 

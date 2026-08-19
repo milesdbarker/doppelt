@@ -45,16 +45,18 @@ class GameState:
     plus_one_after_passive: bool = False
     action_log: list[int] = field(default_factory=list)
     bonus_events: list[str] = field(default_factory=list)
+    record_trace: bool = True
+    _rng_borrowed: bool = field(default=False, repr=False)
 
     def copy_for_trial(self) -> GameState:
-        """Clone mutable state for one-step search without sharing RNG or logs."""
+        """Clone sheet and board for search. Dice RNG is borrowed until a roll."""
         trial = GameState(
             seed=self.seed,
             player_count=self.player_count,
             round_index=self.round_index,
             phase=self.phase,
             sheet=self.sheet.copy(),
-            rng=random.Random(),
+            rng=self.rng,
             faces=dict(self.faces),
             hand=list(self.hand),
             platter=list(self.platter),
@@ -76,6 +78,16 @@ class GameState:
             white_mark_resume_after=self.white_mark_resume_after,
             plus_one_dice_used=set(self.plus_one_dice_used),
             plus_one_after_passive=self.plus_one_after_passive,
+            record_trace=False,
+            _rng_borrowed=True,
         )
-        trial.rng.setstate(self.rng.getstate())
         return trial
+
+    def ensure_private_rng(self) -> None:
+        """Clone borrowed dice RNG before a trial roll so the live game is untouched."""
+        if not self._rng_borrowed:
+            return
+        cloned = random.Random()
+        cloned.setstate(self.rng.getstate())
+        self.rng = cloned
+        self._rng_borrowed = False

@@ -21,8 +21,10 @@ htmlcov/
 # Data & logs (large generated files)
 data/logs/
 data/datasets/
+data/models/
 *.bin
 *.dpld
+*.pt
 !tests/fixtures/*.bin
 
 # IDE
